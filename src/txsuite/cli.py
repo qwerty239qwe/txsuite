@@ -21,6 +21,7 @@ from txsuite.single_cell import (
     analysis_command,
     build_single_cell_image,
     pseudobulk_command,
+    pseudobulk_workflow_command,
     validate_samplesheet as validate_single_cell_samplesheet,
     workflow_command as single_cell_workflow_command,
 )
@@ -93,6 +94,28 @@ def _parser() -> argparse.ArgumentParser:
     single_cell_workflow.add_argument("--run-dir", type=Path)
     single_cell_workflow.add_argument("--resume", action="store_true")
     single_cell_workflow.add_argument("--dry-run", action="store_true")
+
+    pseudobulk_workflow = workflow_commands.add_parser(
+        "pseudobulk-de", help="run pseudobulk and DESeq2 as a native Nextflow DAG"
+    )
+    pseudobulk_workflow.add_argument("--input", type=Path, required=True)
+    pseudobulk_workflow.add_argument("--sample-column", required=True)
+    pseudobulk_workflow.add_argument("--design", required=True)
+    pseudobulk_workflow.add_argument("--reference", required=True)
+    pseudobulk_workflow.add_argument("--test", required=True)
+    pseudobulk_workflow.add_argument("--padj", type=float, default=0.05)
+    pseudobulk_workflow.add_argument("--lfc", type=float, default=1.0)
+    pseudobulk_workflow.add_argument("--top-genes", type=int, default=50)
+    pseudobulk_workflow.add_argument("--outdir", type=Path, required=True)
+    pseudobulk_workflow.add_argument("--image")
+    pseudobulk_workflow.add_argument("--bulk-image")
+    pseudobulk_workflow.add_argument("--nextflow-config", type=Path)
+    pseudobulk_workflow.add_argument(
+        "--config", type=Path, default=Path("txsuite.toml")
+    )
+    pseudobulk_workflow.add_argument("--run-dir", type=Path)
+    pseudobulk_workflow.add_argument("--resume", action="store_true")
+    pseudobulk_workflow.add_argument("--dry-run", action="store_true")
 
     spatial_workflow = workflow_commands.add_parser(
         "spatial", help="run user-installed Space Ranger 4.1"
@@ -327,6 +350,57 @@ def run(argv: list[str] | None = None) -> int:
                 ],
             )
             return 0
+        if args.command == "workflow" and args.workflow_command == "pseudobulk-de":
+            config = load_config(args.config)
+            command = pseudobulk_workflow_command(
+                config,
+                h5ad=args.input,
+                outdir=args.outdir,
+                sample_column=args.sample_column,
+                design=args.design,
+                reference=args.reference,
+                test=args.test,
+                single_cell_image=args.image,
+                bulk_image=args.bulk_image,
+                padj=args.padj,
+                lfc=args.lfc,
+                top_genes=args.top_genes,
+                nextflow_config=args.nextflow_config,
+                resume=args.resume,
+            )
+            if args.dry_run:
+                print(format_command(command))
+                return 0
+            args.outdir.mkdir(parents=True, exist_ok=True)
+            run_command(
+                command,
+                run_dir=args.run_dir or args.outdir / ".txsuite",
+                task="workflow.pseudobulk-de",
+                backend="Nextflow DSL2",
+                inputs={
+                    "h5ad": str(args.input.resolve()),
+                    "sample_column": args.sample_column,
+                    "design": args.design,
+                    "contrast": [args.test, args.reference],
+                    "padj": args.padj,
+                    "abs_log2fc": args.lfc,
+                    "top_genes": args.top_genes,
+                },
+                outputs={"outdir": str(args.outdir.resolve())},
+                artifacts=[
+                    {
+                        "kind": "directory",
+                        "label": "pseudobulk tables",
+                        "path": str((args.outdir / "pseudobulk").resolve()),
+                    },
+                    {
+                        "kind": "directory",
+                        "label": "DESeq2 results",
+                        "path": str((args.outdir / "deseq2").resolve()),
+                    },
+                ],
+            )
+            return 0
         if args.command == "workflow" and args.workflow_command == "spatial":
             config = load_config(args.config)
             command = spaceranger_command(
@@ -491,7 +565,9 @@ def run(argv: list[str] | None = None) -> int:
                 print(format_command(command))
                 return 0
             args.outdir.mkdir(parents=True, exist_ok=True)
-            result_name = "ora-results.tsv" if args.mode == "ora" else "gsea-results.tsv"
+            result_name = (
+                "ora-results.tsv" if args.mode == "ora" else "gsea-results.tsv"
+            )
             run_command(
                 command,
                 run_dir=args.run_dir or args.outdir / ".txsuite",

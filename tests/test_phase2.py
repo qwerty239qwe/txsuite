@@ -60,6 +60,7 @@ class Phase2Test(unittest.TestCase):
                 resolution=0.5,
             )
             self.assertEqual(analysis[:3], ["docker", "run", "--rm"])
+            self.assertIn("/opt/txsuite/single_cell.py", analysis)
             self.assertIn("analyze", analysis)
 
             h5ad = root / "data.h5ad"
@@ -71,6 +72,7 @@ class Phase2Test(unittest.TestCase):
                 sample_column="sample",
                 design="condition",
             )
+            self.assertIn("/opt/txsuite/single_cell.py", aggregate)
             self.assertIn("pseudobulk", aggregate)
 
     def test_samplesheet_requires_official_column_order(self) -> None:

@@ -125,18 +125,25 @@ uv run txsuite single-cell analyze \
 `analysis.h5ad`, `cell-qc.tsv`, `clusters.tsv`, a summary, and the standard
 TxSuite manifest. A tiny 10x-format smoke dataset is in `examples/single_cell/`.
 
-For an H5AD whose `obs` contains sample and experimental-design columns, run
-pseudobulk DE through the existing DESeq2 backend:
+For an H5AD whose `obs` contains sample and experimental-design columns, the
+native DSL2 workflow runs pseudobulk aggregation and DESeq2 as one resumable
+DAG:
 
 ```bash
-uv run txsuite single-cell pseudobulk-de \
+uv run txsuite workflow pseudobulk-de \
   --input annotated.h5ad \
   --sample-column sample \
   --design condition \
   --reference control \
   --test treated \
-  --outdir results/pseudobulk-de
+  --outdir results/pseudobulk-de \
+  --resume
 ```
+
+The packaged workflow has `local`, `docker`, and `apptainer` profiles and
+accepts `--nextflow-config` for cluster settings. The original
+`txsuite single-cell pseudobulk-de` command remains available for running the
+same two container steps directly without Nextflow.
 
 ## Spatial transcriptomics
 

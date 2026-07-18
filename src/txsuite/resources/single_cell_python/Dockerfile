@@ -6,4 +6,4 @@ RUN python -m pip install --no-cache-dir "scanpy[leiden]==1.12.2"
 
 COPY single_cell.py /opt/txsuite/single_cell.py
 
-ENTRYPOINT ["python", "/opt/txsuite/single_cell.py"]
+CMD ["python", "/opt/txsuite/single_cell.py", "--help"]

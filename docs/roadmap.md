@@ -150,6 +150,23 @@ Deliver only after the three modality smoke tests pass:
 - SLURM examples;
 - release documentation and compatibility table.
 
+### Phase 5 — native orchestration
+
+Implementation status: the single-cell pseudobulk-to-DESeq2 path is packaged as
+a resumable Nextflow DSL2 workflow with local, Docker, and Apptainer profiles.
+Its stub DAG runs in CI. The pinned nf-core raw-data launchers and licensed
+Space Ranger backend remain independent upstream integrations.
+
+Deliver:
+
+- native DAGs only for cross-image TxSuite methods that benefit from resume;
+- one CLI and configuration contract for local workstations and HPC;
+- stub-run CI for graph wiring, plus external real-container smoke tests;
+- no vendored nf-core modules or nested Nextflow launches.
+
+Done when each native DAG has a small real-data Docker smoke test, an Apptainer
+smoke test, and documented result artifacts.
+
 ## Backend maturity labels
 
 - **ready**: wrapped, pinned, tested, and documented.

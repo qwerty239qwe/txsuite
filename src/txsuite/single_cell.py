@@ -109,6 +109,8 @@ def analysis_command(
         "--mount",
         f"type=bind,source={outdir.resolve()},target=/output",
         image,
+        "python",
+        "/opt/txsuite/single_cell.py",
         "analyze",
         target,
         "/output",
@@ -142,6 +144,8 @@ def pseudobulk_command(
         "--mount",
         f"type=bind,source={outdir.resolve()},target=/output",
         image,
+        "python",
+        "/opt/txsuite/single_cell.py",
         "pseudobulk",
         "/input/data.h5ad",
         "/output",
@@ -150,6 +154,88 @@ def pseudobulk_command(
         "--design",
         design,
     ]
+
+
+def pseudobulk_workflow_command(
+    config: dict[str, Any],
+    *,
+    h5ad: Path,
+    outdir: Path,
+    sample_column: str,
+    design: str,
+    reference: str,
+    test: str,
+    single_cell_image: str | None = None,
+    bulk_image: str | None = None,
+    padj: float = 0.05,
+    lfc: float = 1.0,
+    top_genes: int = 50,
+    nextflow_config: Path | None = None,
+    resume: bool = False,
+) -> list[str]:
+    if not h5ad.is_file():
+        raise TxSuiteError(f"H5AD file does not exist: {h5ad}")
+    for label, value in (("Sample column", sample_column), ("Design", design)):
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", value):
+            raise TxSuiteError(f"{label} must be a simple column name")
+    for label, value in (("Reference", reference), ("Test", test)):
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", value):
+            raise TxSuiteError(f"{label} must be a simple factor level")
+    if reference == test:
+        raise TxSuiteError("Reference and test levels must differ")
+    if not 0 < padj <= 1 or lfc < 0 or top_genes < 1:
+        raise TxSuiteError(
+            "padj must be in (0, 1], lfc non-negative, and top genes positive"
+        )
+    images = config["images"]
+    single_cell_image = single_cell_image or images["single_cell_python"]
+    bulk_image = bulk_image or images["bulk_r"]
+    if not single_cell_image.strip() or not bulk_image.strip():
+        raise TxSuiteError("Workflow images cannot be empty")
+    if nextflow_config is not None and not nextflow_config.is_file():
+        raise TxSuiteError(f"Nextflow config does not exist: {nextflow_config}")
+
+    workflow = resources.files("txsuite.resources.nextflow").joinpath("main.nf")
+    command = [
+        "nextflow",
+        "run",
+        str(workflow),
+        "-profile",
+        config["execution"]["profile"],
+        "-work-dir",
+        str((outdir / ".nextflow-work").resolve()),
+    ]
+    if nextflow_config is not None:
+        command.extend(["-c", str(nextflow_config.resolve())])
+    if resume:
+        command.append("-resume")
+    command.extend(
+        [
+            "--input",
+            str(h5ad.resolve()),
+            "--outdir",
+            str(outdir.resolve()),
+            "--sample_column",
+            sample_column,
+            "--design",
+            design,
+            "--reference",
+            reference,
+            "--test",
+            test,
+            "--single_cell_image",
+            single_cell_image,
+            "--bulk_image",
+            bulk_image,
+            "--padj",
+            str(padj),
+            "--lfc",
+            str(lfc),
+            "--top_genes",
+            str(top_genes),
+        ]
+    )
+    return command
 
 
 def build_single_cell_image(tag: str, *, run_dir: Path) -> None:
