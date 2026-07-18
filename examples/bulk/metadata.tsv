@@ -1,5 +1,5 @@
-sample	condition
-control_1	control
-control_2	control
-treated_1	treated
-treated_2	treated
+sample	condition	batch
+control_1	control	A
+control_2	control	B
+treated_1	treated	A
+treated_2	treated	B

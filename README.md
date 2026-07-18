@@ -49,7 +49,8 @@ uv run txsuite workflow bulk \
   --params-file rnaseq-params.json
 ```
 
-Build the owned DESeq2 image and compare two levels of a metadata column:
+Build the owned R image and compare two levels of a metadata column. Repeat
+`--covariate` for batch or other adjustment variables:
 
 ```bash
 uv run txsuite env build bulk-r
@@ -60,11 +61,36 @@ uv run txsuite bulk de \
   --design condition \
   --reference control \
   --test treated \
+  --covariate batch \
+  --padj 0.05 \
+  --lfc 1 \
   --outdir results/de
 ```
 
-Small synthetic DESeq2 inputs are available under `examples/bulk/` for an image
-smoke test.
+In addition to complete and significant DE tables, this writes normalized and
+VST counts, library QC, PCA and sample-correlation tables, an analysis summary,
+and PCA, correlation, MA, volcano, and top-variable-gene heatmap PDFs.
+
+Run over-representation analysis or ranked GSEA against any standard GMT gene
+set collection:
+
+```bash
+uv run txsuite bulk enrich \
+  --de results/de/deseq2-results.tsv \
+  --genesets pathways.gmt \
+  --mode ora \
+  --outdir results/ora
+
+uv run txsuite bulk enrich \
+  --de results/de/deseq2-results.tsv \
+  --genesets pathways.gmt \
+  --mode gsea \
+  --outdir results/gsea
+```
+
+Small synthetic counts, metadata, and GMT inputs are available under
+`examples/bulk/` for image smoke tests. Gene identifiers in the DE table and
+GMT must use the same namespace.
 
 The counts table must contain genes as rows, samples as columns, and gene IDs in
 its first column. Metadata must contain sample IDs in its first column. Every

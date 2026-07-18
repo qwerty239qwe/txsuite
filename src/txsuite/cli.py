@@ -9,6 +9,7 @@ from pathlib import Path
 from txsuite.bulk import (
     build_bulk_r_image,
     deseq2_command,
+    enrichment_command,
     validate_samplesheet as validate_bulk_samplesheet,
     workflow_command as bulk_workflow_command,
 )
@@ -128,11 +129,36 @@ def _parser() -> argparse.ArgumentParser:
     de.add_argument("--design", required=True)
     de.add_argument("--reference", required=True)
     de.add_argument("--test", required=True)
+    de.add_argument("--covariate", action="append", default=[])
+    de.add_argument("--padj", type=float, default=0.05)
+    de.add_argument("--lfc", type=float, default=1.0)
+    de.add_argument("--top-genes", type=int, default=50)
     de.add_argument("--outdir", type=Path, required=True)
     de.add_argument("--image")
     de.add_argument("--config", type=Path, default=Path("txsuite.toml"))
     de.add_argument("--run-dir", type=Path)
     de.add_argument("--dry-run", action="store_true")
+
+    enrich = bulk_commands.add_parser(
+        "enrich", help="run GMT-based over-representation analysis or GSEA"
+    )
+    enrich.add_argument("--de", type=Path, required=True)
+    enrich.add_argument("--genesets", type=Path, required=True)
+    enrich.add_argument("--mode", choices=("ora", "gsea"), required=True)
+    enrich.add_argument("--padj", type=float, default=0.05)
+    enrich.add_argument("--lfc", type=float, default=1.0)
+    enrich.add_argument("--min-size", type=int, default=10)
+    enrich.add_argument("--max-size", type=int, default=500)
+    enrich.add_argument(
+        "--adjust",
+        choices=("holm", "hochberg", "hommel", "bonferroni", "BH", "BY", "fdr", "none"),
+        default="BH",
+    )
+    enrich.add_argument("--outdir", type=Path, required=True)
+    enrich.add_argument("--image")
+    enrich.add_argument("--config", type=Path, default=Path("txsuite.toml"))
+    enrich.add_argument("--run-dir", type=Path)
+    enrich.add_argument("--dry-run", action="store_true")
 
     single_cell = commands.add_parser(
         "single-cell", help="single-cell RNA-seq downstream analysis"
@@ -383,6 +409,10 @@ def run(argv: list[str] | None = None) -> int:
                 reference=args.reference,
                 test=args.test,
                 outdir=args.outdir,
+                covariates=tuple(args.covariate),
+                padj=args.padj,
+                lfc=args.lfc,
+                top_genes=args.top_genes,
             )
             if args.dry_run:
                 print(format_command(command))
@@ -398,6 +428,9 @@ def run(argv: list[str] | None = None) -> int:
                     "metadata": str(args.metadata.resolve()),
                     "design": args.design,
                     "contrast": [args.test, args.reference],
+                    "covariates": args.covariate,
+                    "padj": args.padj,
+                    "abs_log2fc": args.lfc,
                 },
                 outputs={"outdir": str(args.outdir.resolve())},
                 artifacts=[
@@ -412,9 +445,83 @@ def run(argv: list[str] | None = None) -> int:
                         "path": str((args.outdir / "normalized-counts.tsv").resolve()),
                     },
                     {
+                        "kind": "table",
+                        "label": "significant genes",
+                        "path": str((args.outdir / "significant-genes.tsv").resolve()),
+                    },
+                    {
+                        "kind": "table",
+                        "label": "sample QC",
+                        "path": str((args.outdir / "sample-qc.tsv").resolve()),
+                    },
+                    {
+                        "kind": "figure",
+                        "label": "PCA",
+                        "path": str((args.outdir / "pca.pdf").resolve()),
+                    },
+                    {
+                        "kind": "figure",
+                        "label": "volcano plot",
+                        "path": str((args.outdir / "volcano.pdf").resolve()),
+                    },
+                    {
                         "kind": "text",
                         "label": "R session info",
                         "path": str((args.outdir / "session-info.txt").resolve()),
+                    },
+                ],
+            )
+            return 0
+        if args.command == "bulk" and args.bulk_command == "enrich":
+            config = load_config(args.config)
+            image = args.image or config["images"]["bulk_r"]
+            command = enrichment_command(
+                image=image,
+                de_results=args.de,
+                genesets=args.genesets,
+                mode=args.mode,
+                outdir=args.outdir,
+                padj=args.padj,
+                lfc=args.lfc,
+                min_size=args.min_size,
+                max_size=args.max_size,
+                adjust=args.adjust,
+            )
+            if args.dry_run:
+                print(format_command(command))
+                return 0
+            args.outdir.mkdir(parents=True, exist_ok=True)
+            result_name = "ora-results.tsv" if args.mode == "ora" else "gsea-results.tsv"
+            run_command(
+                command,
+                run_dir=args.run_dir or args.outdir / ".txsuite",
+                task=f"bulk.enrich.{args.mode}",
+                backend="clusterProfiler",
+                inputs={
+                    "de_results": str(args.de.resolve()),
+                    "genesets": str(args.genesets.resolve()),
+                    "mode": args.mode,
+                    "padj": args.padj,
+                    "abs_log2fc": args.lfc,
+                    "gene_set_size": [args.min_size, args.max_size],
+                    "adjust": args.adjust,
+                },
+                outputs={"outdir": str(args.outdir.resolve())},
+                artifacts=[
+                    {
+                        "kind": "table",
+                        "label": f"{args.mode.upper()} results",
+                        "path": str((args.outdir / result_name).resolve()),
+                    },
+                    {
+                        "kind": "figure",
+                        "label": "top enrichment results",
+                        "path": str((args.outdir / "enrichment-top.pdf").resolve()),
+                    },
+                    {
+                        "kind": "table",
+                        "label": "enrichment summary",
+                        "path": str((args.outdir / "enrichment-summary.tsv").resolve()),
                     },
                 ],
             )

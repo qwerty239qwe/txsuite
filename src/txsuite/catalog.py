@@ -35,6 +35,14 @@ TOOLS = (
         "ready",
     ),
     Tool(
+        "bulk",
+        "enrichment",
+        "clusterProfiler ORA/GSEA",
+        "docker",
+        "txsuite/bulk-r",
+        "ready",
+    ),
+    Tool(
         "single-cell",
         "workflow",
         "nf-core/scrnaseq",

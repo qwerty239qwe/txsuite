@@ -76,7 +76,9 @@ without installing analysis libraries.
 ### Phase 1 — bulk RNA-seq
 
 Implementation status: the launcher, validation, and provenance layer are
-implemented. The pinned DESeq2 1.52.0 image passed a Docker smoke analysis.
+implemented. The bulk R image provides covariate-aware DESeq2, QC and standard
+DE plots, plus GMT-based clusterProfiler ORA and GSEA. The expanded image passed
+synthetic Docker smoke analyses for all three paths.
 Docker and Apptainer nf-core end-to-end dataset validation is still required
 before the raw workflow backend is labelled **ready**.
 
@@ -89,7 +91,8 @@ Deliver:
 - provenance and result manifest;
 - task commands for FastQC, fastp, STAR, and Salmon only when they provide value
   outside the full workflow;
-- downstream DESeq2 through a separate R image.
+- downstream DESeq2, exploratory QC/plots, ORA, and GSEA through a separate R
+  image.
 
 Done when a small paired-end test dataset produces counts, MultiQC output, and a
 complete manifest under both Docker and Apptainer.

@@ -1,0 +1,4 @@
+TREATMENT_RESPONSE	Synthetic treatment-responsive genes	gene_01	gene_05	gene_07	gene_11	gene_13	gene_16	gene_18	gene_21	gene_23	gene_26	gene_28
+CONTROL_RESPONSE	Synthetic control-associated genes	gene_02	gene_09	gene_14	gene_19	gene_24	gene_29
+HIGH_EXPRESSION	Synthetic highly expressed genes	gene_04	gene_11	gene_17	gene_21	gene_24	gene_28
+STABLE_EXPRESSION	Synthetic stable genes	gene_03	gene_06	gene_08	gene_10	gene_12	gene_15	gene_20	gene_22	gene_25	gene_27	gene_30
