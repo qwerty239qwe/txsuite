@@ -50,6 +50,7 @@ def workflow_command(
     samplesheet: Path,
     outdir: Path,
     params_file: Path | None = None,
+    nextflow_config: Path | None = None,
     resume: bool = False,
 ) -> list[str]:
     pipeline = config["pipelines"]["bulk"]
@@ -70,6 +71,10 @@ def workflow_command(
         if not params_file.is_file():
             raise TxSuiteError(f"Params file does not exist: {params_file}")
         command.extend(["-params-file", str(params_file.resolve())])
+    if nextflow_config is not None:
+        if not nextflow_config.is_file():
+            raise TxSuiteError(f"Nextflow config does not exist: {nextflow_config}")
+        command.extend(["-c", str(nextflow_config.resolve())])
     if resume:
         command.append("-resume")
     return command

@@ -133,6 +133,11 @@ manifest without TxSuite redistributing licensed software.
 
 ### Phase 4 — hardening
 
+Implementation status: checksum-verified reference caching, immutable image
+validation, native resume guidance, a custom Nextflow config hook, SLURM example,
+and release/compatibility documentation are implemented. Registry-published
+image digests and the external raw-data smoke matrix remain release blockers.
+
 Deliver only after the three modality smoke tests pass:
 
 - resumable runs;

@@ -14,6 +14,7 @@ from txsuite.bulk import (
 )
 from txsuite.catalog import select_tools
 from txsuite.config import ConfigError, DEFAULT_TOML, load_config
+from txsuite.hardening import cache_reference, image_is_locked
 from txsuite.runtime import TxSuiteError, format_command, run_command
 from txsuite.single_cell import (
     analysis_command,
@@ -68,6 +69,7 @@ def _parser() -> argparse.ArgumentParser:
     bulk_workflow.add_argument("--input", type=Path, required=True)
     bulk_workflow.add_argument("--outdir", type=Path, required=True)
     bulk_workflow.add_argument("--params-file", type=Path)
+    bulk_workflow.add_argument("--nextflow-config", type=Path)
     bulk_workflow.add_argument("--config", type=Path, default=Path("txsuite.toml"))
     bulk_workflow.add_argument("--run-dir", type=Path)
     bulk_workflow.add_argument("--resume", action="store_true")
@@ -83,6 +85,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     single_cell_workflow.add_argument("--protocol")
     single_cell_workflow.add_argument("--params-file", type=Path)
+    single_cell_workflow.add_argument("--nextflow-config", type=Path)
     single_cell_workflow.add_argument(
         "--config", type=Path, default=Path("txsuite.toml")
     )
@@ -181,10 +184,28 @@ def _parser() -> argparse.ArgumentParser:
     spatial_analyze.add_argument("--run-dir", type=Path)
     spatial_analyze.add_argument("--dry-run", action="store_true")
 
+    reference = commands.add_parser("reference", help="manage verified references")
+    reference_commands = reference.add_subparsers(
+        dest="reference_command", required=True
+    )
+    reference_cache = reference_commands.add_parser(
+        "cache", help="cache a file only when its SHA-256 matches"
+    )
+    reference_cache.add_argument("--source", required=True)
+    reference_cache.add_argument("--sha256", required=True)
+    reference_cache.add_argument("--name", required=True)
+    reference_cache.add_argument(
+        "--root", type=Path, default=Path(".txsuite/references")
+    )
+
     env = commands.add_parser("env", help="inspect execution environments")
     env_commands = env.add_subparsers(dest="env_command", required=True)
     doctor = env_commands.add_parser("doctor", help="check workflow prerequisites")
     doctor.add_argument("--config", type=Path, default=Path("txsuite.toml"))
+    verify_images = env_commands.add_parser(
+        "verify-images", help="fail when configured images use mutable tags"
+    )
+    verify_images.add_argument("--config", type=Path, default=Path("txsuite.toml"))
     build = env_commands.add_parser("build", help="build a TxSuite-owned image")
     build.add_argument(
         "environment", choices=("bulk-r", "single-cell-python", "spatial-python")
@@ -221,6 +242,7 @@ def run(argv: list[str] | None = None) -> int:
                 samplesheet=args.input,
                 outdir=args.outdir,
                 params_file=args.params_file,
+                nextflow_config=args.nextflow_config,
                 resume=args.resume,
             )
             if args.dry_run:
@@ -253,6 +275,7 @@ def run(argv: list[str] | None = None) -> int:
                 aligner=args.aligner,
                 protocol=args.protocol,
                 params_file=args.params_file,
+                nextflow_config=args.nextflow_config,
                 resume=args.resume,
             )
             if args.dry_run:
@@ -579,6 +602,9 @@ def run(argv: list[str] | None = None) -> int:
                 ],
             )
             return 0
+        if args.command == "reference" and args.reference_command == "cache":
+            print(cache_reference(args.source, args.sha256, args.name, args.root))
+            return 0
         if args.command == "env" and args.env_command == "doctor":
             config = load_config(args.config)
             profile = config["execution"]["profile"]
@@ -601,6 +627,14 @@ def run(argv: list[str] | None = None) -> int:
                 print(f"{label}\t{requirement}\t{executable}\t{location or '-'}")
                 missing |= executable in required and location is None
             return int(missing)
+        if args.command == "env" and args.env_command == "verify-images":
+            config = load_config(args.config)
+            mutable = False
+            for name, image in config["images"].items():
+                locked = image_is_locked(image)
+                print(f"{'LOCKED' if locked else 'MUTABLE'}\t{name}\t{image}")
+                mutable |= not locked
+            return int(mutable)
         if args.command == "env" and args.env_command == "build":
             config = load_config(args.config)
             key = args.environment.replace("-", "_")

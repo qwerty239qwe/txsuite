@@ -43,6 +43,7 @@ def workflow_command(
     aligner: str = "simpleaf",
     protocol: str | None = None,
     params_file: Path | None = None,
+    nextflow_config: Path | None = None,
     resume: bool = False,
 ) -> list[str]:
     if aligner not in ALIGNERS:
@@ -69,6 +70,10 @@ def workflow_command(
         if not params_file.is_file():
             raise TxSuiteError(f"Params file does not exist: {params_file}")
         command.extend(["-params-file", str(params_file.resolve())])
+    if nextflow_config is not None:
+        if not nextflow_config.is_file():
+            raise TxSuiteError(f"Nextflow config does not exist: {nextflow_config}")
+        command.extend(["-c", str(nextflow_config.resolve())])
     if resume:
         command.append("-resume")
     return command

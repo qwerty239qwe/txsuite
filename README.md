@@ -143,3 +143,19 @@ uv run txsuite spatial analyze \
 
 An existing Spacemake project can be run with the explicitly experimental
 `txsuite workflow spatial-open --project-root PROJECT --cores 8` command.
+
+## Reproducibility and HPC
+
+Cache a reference only after verifying its published SHA-256:
+
+```bash
+txsuite reference cache \
+  --source https://example.org/GRCh38.tar.gz \
+  --sha256 PUBLISHED_64_CHARACTER_SHA256 \
+  --name GRCh38.tar.gz
+```
+
+Release configurations must use immutable `image@sha256:digest` references;
+`txsuite env verify-images` reports mutable tags and exits nonzero. See
+`docs/slurm.md`, `docs/compatibility.md`, and `docs/release.md` for cluster and
+release checks.
