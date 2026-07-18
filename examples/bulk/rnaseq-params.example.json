@@ -1,0 +1,5 @@
+{
+  "aligner": "star_salmon",
+  "fasta": "/references/genome.fa",
+  "gtf": "/references/genes.gtf"
+}

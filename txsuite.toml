@@ -1,0 +1,19 @@
+[execution]
+profile = "docker"
+
+[images]
+bulk_r = "txsuite/bulk-r:0.1.0"
+single_cell_python = "txsuite/single-cell-python:0.1.0"
+spatial_python = "txsuite/spatial-python:0.1.0"
+
+[pipelines.bulk]
+name = "nf-core/rnaseq"
+release = "3.26.0"
+
+[pipelines.single_cell]
+name = "nf-core/scrnaseq"
+release = "4.2.0"
+
+[pipelines.spatial]
+name = "spaceranger"
+release = "4.1.0"

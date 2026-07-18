@@ -1,0 +1,16 @@
+[project]
+name = "txsuite"
+version = "0.1.0"
+description = "Reproducible bulk, single-cell, and spatial transcriptomics toolbox."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "TxSuite contributors" }]
+dependencies = []
+
+[project.scripts]
+txsuite = "txsuite.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
