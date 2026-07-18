@@ -1,0 +1,53 @@
+name: containers
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: bulk-r
+            context: src/txsuite/resources/bulk_r
+          - image: single-cell-python
+            context: src/txsuite/resources/single_cell_python
+          - image: spatial-python
+            context: src/txsuite/resources/spatial_python
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/txsuite-${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha
+      - uses: docker/build-push-action@v7
+        id: build
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          provenance: mode=max
+          sbom: true
+      - name: Record immutable image
+        run: printf '### %s\n\n`%s@%s`\n' '${{ matrix.image }}' 'ghcr.io/${{ github.repository_owner }}/txsuite-${{ matrix.image }}' '${{ steps.build.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"

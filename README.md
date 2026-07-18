@@ -158,4 +158,5 @@ txsuite reference cache \
 Release configurations must use immutable `image@sha256:digest` references;
 `txsuite env verify-images` reports mutable tags and exits nonzero. See
 `docs/slurm.md`, `docs/compatibility.md`, and `docs/release.md` for cluster and
-release checks.
+release checks. The `containers` GitHub Actions workflow publishes all three
+owned images to GHCR from version tags or a manual run.
