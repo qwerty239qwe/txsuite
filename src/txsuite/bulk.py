@@ -13,6 +13,7 @@ from txsuite.runtime import TxSuiteError, run_command
 
 REQUIRED_COLUMNS = {"sample", "fastq_1", "fastq_2", "strandedness"}
 STRANDEDNESS = {"auto", "forward", "reverse", "unstranded"}
+DE_METHODS = ("deseq2", "edger", "limma")
 
 
 def validate_samplesheet(path: Path) -> int:
@@ -118,7 +119,7 @@ def deseq2_command(
     if top_genes < 1:
         raise TxSuiteError("Top genes must be positive")
     if not image.strip():
-        raise TxSuiteError("DESeq2 image cannot be empty")
+        raise TxSuiteError("Bulk R image cannot be empty")
     mounts = (
         f"type=bind,source={counts.resolve()},target=/input/counts.tsv,readonly",
         f"type=bind,source={metadata.resolve()},target=/input/metadata.tsv,readonly",
@@ -148,6 +149,45 @@ def deseq2_command(
         str(top_genes),
         ",".join(covariates),
     ]
+
+
+def differential_expression_command(
+    *,
+    method: str,
+    image: str,
+    counts: Path,
+    metadata: Path,
+    design: str,
+    reference: str,
+    test: str,
+    outdir: Path,
+    covariates: tuple[str, ...] = (),
+    padj: float = 0.05,
+    lfc: float = 1.0,
+    top_genes: int = 50,
+    check_inputs: bool = True,
+) -> list[str]:
+    if method not in DE_METHODS:
+        raise TxSuiteError(f"DE method must be one of: {', '.join(DE_METHODS)}")
+    command = deseq2_command(
+        image=image,
+        counts=counts,
+        metadata=metadata,
+        design=design,
+        reference=reference,
+        test=test,
+        outdir=outdir,
+        covariates=covariates,
+        padj=padj,
+        lfc=lfc,
+        top_genes=top_genes,
+        check_inputs=check_inputs,
+    )
+    if method != "deseq2":
+        script = command.index("/opt/txsuite/deseq2.R")
+        command[script] = "/opt/txsuite/alternative_de.R"
+        command.insert(script + 1, method)
+    return command
 
 
 def enrichment_command(
@@ -223,7 +263,7 @@ def build_bulk_r_image(tag: str, *, run_dir: Path) -> None:
     package = resources.files("txsuite.resources.bulk_r")
     with tempfile.TemporaryDirectory(prefix="txsuite-bulk-r-") as directory:
         context = Path(directory)
-        for name in ("Dockerfile", "deseq2.R", "enrichment.R"):
+        for name in ("Dockerfile", "deseq2.R", "alternative_de.R", "enrichment.R"):
             (context / name).write_text(
                 package.joinpath(name).read_text(encoding="utf-8"), encoding="utf-8"
             )
@@ -238,6 +278,8 @@ def build_bulk_r_image(tag: str, *, run_dir: Path) -> None:
                     "sha256:1d871e1ca9cca76b220eb16e22677e728f4352f81a9ee91aaf29e24aea43e624"
                 ),
                 "DESeq2": "1.52.0",
+                "edgeR": "4.10.1",
+                "limma": "3.68.4",
                 "clusterProfiler": "4.20.0",
             },
             outputs={"image": tag},

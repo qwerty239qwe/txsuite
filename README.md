@@ -49,8 +49,10 @@ uv run txsuite workflow bulk \
   --params-file rnaseq-params.json
 ```
 
-Build the owned R image and compare two levels of a metadata column. Repeat
-`--covariate` for batch or other adjustment variables:
+Build the owned R image and compare two levels of a metadata column. DESeq2 is
+the default; select `--method edger` for edgeR quasi-likelihood or
+`--method limma` for limma-voom. Repeat `--covariate` for batch or other
+adjustment variables:
 
 ```bash
 uv run txsuite env build bulk-r
@@ -65,11 +67,20 @@ uv run txsuite bulk de \
   --padj 0.05 \
   --lfc 1 \
   --outdir results/de
+
+uv run txsuite bulk de \
+  --method edger \
+  --counts counts.tsv \
+  --metadata metadata.tsv \
+  --design condition \
+  --reference control \
+  --test treated \
+  --outdir results/edger
 ```
 
-In addition to complete and significant DE tables, this writes normalized and
-VST counts, library QC, PCA and sample-correlation tables, an analysis summary,
-and PCA, correlation, MA, volcano, and top-variable-gene heatmap PDFs.
+All methods write complete and significant DE tables, normalized counts,
+library QC, an analysis summary, ordination, MA, volcano, and top-gene plots.
+DESeq2 additionally writes VST counts and sample correlations.
 
 Run over-representation analysis or ranked GSEA against any standard GMT gene
 set collection:

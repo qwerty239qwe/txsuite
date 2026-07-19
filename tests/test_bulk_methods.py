@@ -6,7 +6,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from txsuite.bulk import deseq2_command, enrichment_command
+from txsuite.bulk import (
+    deseq2_command,
+    differential_expression_command,
+    enrichment_command,
+)
 from txsuite.cli import run
 from txsuite.runtime import TxSuiteError
 
@@ -45,6 +49,21 @@ class BulkMethodTests(unittest.TestCase):
             )
             self.assertIn("/opt/txsuite/deseq2.R", de)
             self.assertEqual(de[-4:], ["0.01", "1.5", "20", "batch"])
+
+            for method in ("edger", "limma"):
+                alternative = differential_expression_command(
+                    method=method,
+                    image="txsuite/bulk-r:test",
+                    counts=counts,
+                    metadata=metadata,
+                    design="condition",
+                    reference="control",
+                    test="treated",
+                    outdir=root / method,
+                    covariates=("batch",),
+                )
+                self.assertIn("/opt/txsuite/alternative_de.R", alternative)
+                self.assertIn(method, alternative)
 
             enrich = enrichment_command(
                 image="txsuite/bulk-r:test",
@@ -91,11 +110,38 @@ class BulkMethodTests(unittest.TestCase):
             self.assertEqual(status, 0)
             self.assertIn("enrichment.R", output.getvalue())
 
+            output = StringIO()
+            with redirect_stdout(output):
+                status = run(
+                    [
+                        "bulk",
+                        "de",
+                        "--method",
+                        "limma",
+                        "--counts",
+                        str(counts),
+                        "--metadata",
+                        str(metadata),
+                        "--design",
+                        "condition",
+                        "--reference",
+                        "control",
+                        "--test",
+                        "treated",
+                        "--outdir",
+                        str(root / "limma"),
+                        "--dry-run",
+                    ]
+                )
+            self.assertEqual(status, 0)
+            self.assertIn("alternative_de.R limma", output.getvalue())
+
         resource_root = (
             Path(__file__).parents[1] / "src" / "txsuite" / "resources" / "bulk_r"
         )
         deseq2 = (resource_root / "deseq2.R").read_text(encoding="utf-8")
         enrichment = (resource_root / "enrichment.R").read_text(encoding="utf-8")
+        alternative = (resource_root / "alternative_de.R").read_text(encoding="utf-8")
         for output_name in (
             "sample-qc.tsv",
             "pca.pdf",
@@ -106,6 +152,8 @@ class BulkMethodTests(unittest.TestCase):
             self.assertIn(output_name, deseq2)
         self.assertIn("enricher(", enrichment)
         self.assertIn("GSEA(", enrichment)
+        self.assertIn("glmQLFTest(", alternative)
+        self.assertIn("voom(", alternative)
 
 
 if __name__ == "__main__":

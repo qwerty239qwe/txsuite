@@ -9,6 +9,7 @@ from pathlib import Path
 from txsuite.bulk import (
     build_bulk_r_image,
     deseq2_command,
+    differential_expression_command,
     enrichment_command,
     validate_samplesheet as validate_bulk_samplesheet,
     workflow_command as bulk_workflow_command,
@@ -146,7 +147,8 @@ def _parser() -> argparse.ArgumentParser:
 
     bulk = commands.add_parser("bulk", help="bulk RNA-seq downstream analysis")
     bulk_commands = bulk.add_subparsers(dest="bulk_command", required=True)
-    de = bulk_commands.add_parser("de", help="run DESeq2 in the bulk-r image")
+    de = bulk_commands.add_parser("de", help="run differential expression")
+    de.add_argument("--method", choices=("deseq2", "edger", "limma"), default="deseq2")
     de.add_argument("--counts", type=Path, required=True)
     de.add_argument("--metadata", type=Path, required=True)
     de.add_argument("--design", required=True)
@@ -475,7 +477,8 @@ def run(argv: list[str] | None = None) -> int:
         if args.command == "bulk" and args.bulk_command == "de":
             config = load_config(args.config)
             image = args.image or config["images"]["bulk_r"]
-            command = deseq2_command(
+            command = differential_expression_command(
+                method=args.method,
                 image=image,
                 counts=args.counts,
                 metadata=args.metadata,
@@ -492,14 +495,21 @@ def run(argv: list[str] | None = None) -> int:
                 print(format_command(command))
                 return 0
             args.outdir.mkdir(parents=True, exist_ok=True)
+            backend = {
+                "deseq2": "DESeq2",
+                "edger": "edgeR",
+                "limma": "limma-voom",
+            }[args.method]
+            result_name = f"{args.method}-results.tsv"
             run_command(
                 command,
                 run_dir=args.run_dir or args.outdir / ".txsuite",
-                task="bulk.de",
-                backend="DESeq2",
+                task=f"bulk.de.{args.method}",
+                backend=backend,
                 inputs={
                     "counts": str(args.counts.resolve()),
                     "metadata": str(args.metadata.resolve()),
+                    "method": args.method,
                     "design": args.design,
                     "contrast": [args.test, args.reference],
                     "covariates": args.covariate,
@@ -510,8 +520,8 @@ def run(argv: list[str] | None = None) -> int:
                 artifacts=[
                     {
                         "kind": "table",
-                        "label": "DESeq2 results",
-                        "path": str((args.outdir / "deseq2-results.tsv").resolve()),
+                        "label": f"{backend} results",
+                        "path": str((args.outdir / result_name).resolve()),
                     },
                     {
                         "kind": "table",
@@ -530,8 +540,13 @@ def run(argv: list[str] | None = None) -> int:
                     },
                     {
                         "kind": "figure",
-                        "label": "PCA",
-                        "path": str((args.outdir / "pca.pdf").resolve()),
+                        "label": "sample ordination",
+                        "path": str(
+                            (
+                                args.outdir
+                                / ("pca.pdf" if args.method == "deseq2" else "mds.pdf")
+                            ).resolve()
+                        ),
                     },
                     {
                         "kind": "figure",
