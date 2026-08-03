@@ -1,0 +1,26 @@
+schema_version = 1
+
+[project]
+id = "scrnaseq_pseudobulk_example"
+modality = "single-cell"
+output_root = "results"
+
+[execution]
+profile = "docker"
+resume = true
+
+[[workflow.stages]]
+id = "pseudobulk_de"
+uses = "single-cell.pseudobulk-de"
+
+[workflow.stages.inputs]
+h5ad = "data/annotated.h5ad"
+
+[workflow.stages.params]
+sample_column = "sample"
+design = "condition"
+reference = "control"
+test = "treated"
+padj = 0.05
+lfc = 1.0
+top_genes = 50

@@ -5,6 +5,9 @@ Validated versions for the 0.1 development line:
 | Surface | Pinned/tested version | Status |
 | --- | --- | --- |
 | TxSuite CLI | Python 3.11–3.13 | CI |
+| Project workflow schema | v1 | runtime and packaged JSON Schema parity tested |
+| Project execution profiles | Docker, Apptainer | schema-supported |
+| Project presets | bulk-rnaseq, scrnaseq, scrnaseq-pseudobulk | packaged-resource and planning tests |
 | nf-core/rnaseq | 3.26.0 | launcher tested; external raw-data smoke pending |
 | nf-core/scrnaseq | 4.2.0 | launcher tested; external raw-data smoke pending |
 | Space Ranger | 4.1.0 | external, user-installed; licensed smoke pending |
@@ -21,3 +24,33 @@ Validated versions for the 0.1 development line:
 “Launcher tested” means validation, command construction, and dry-run behavior
 are covered. It does not imply that licensed software or large reference/FASTQ
 downloads run in CI.
+
+## Project workflow limits
+
+- Schema version 1 is strict: unknown keys, stages, parameters, inputs, outputs,
+  dependencies, and artifact-type mismatches are rejected.
+- The project schema supports `docker` and `apptainer`. SLURM is configured in
+  Nextflow; it is not a third project execution profile.
+- `bulk.rnaseq` and `single-cell.scrnaseq` are selected, pinned integrations.
+  Their planners, deferred artifacts, and release-specific result adapters are
+  tested, but real FASTQ Docker and Apptainer smokes remain release blockers.
+- `bulk.de`, `bulk.enrichment`, `single-cell.scanpy`,
+  `single-cell.pseudobulk`, and `single-cell.pseudobulk-de` are the currently
+  registered downstream stage types. A compatible output type is required for
+  every `${stage.artifact}` edge.
+- nf-core postflight adapters support the pinned releases listed above. A new
+  upstream output layout or release requires a new or updated adapter and an
+  explicit compatibility test; TxSuite does not guess across releases.
+- Cell Ranger and Space Ranger remain external, user-installed licensed tools.
+  Project orchestration does not install them or grant a license.
+- Presets contain placeholders and tiny syntax fixtures, not reference genomes,
+  FASTQs, or validated biological examples.
+
+## Platform and packaging limits
+
+The dependency-free control plane is tested on CPython 3.11–3.13 in GitHub
+Actions. Analysis backends have their own Linux/container requirements. The
+wheel contains the workflow JSON Schema and all preset resources and is audited
+in CI. Windows can load, validate, plan, and scaffold projects, but the selected
+container, Nextflow, and licensed-tool execution paths are not claimed as
+end-to-end validated there.

@@ -4,6 +4,7 @@ import argparse
 import json
 import shlex
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 from txsuite.bulk import (
@@ -17,6 +18,19 @@ from txsuite.bulk import (
 from txsuite.catalog import select_tools
 from txsuite.config import ConfigError, DEFAULT_TOML, load_config
 from txsuite.hardening import cache_reference, image_is_locked
+from txsuite.project import (
+    ProjectExecutor,
+    ProvenanceError,
+    RunBundle,
+    StageExecutionError,
+    WorkflowConfigError,
+    hash_payload,
+    load_project_config,
+    plan_workflow,
+    render_plan,
+    scaffold_project_preset,
+    select_stages,
+)
 from txsuite.runtime import TxSuiteError, format_command, run_command
 from txsuite.single_cell import (
     analysis_command,
@@ -61,6 +75,54 @@ def _parser() -> argparse.ArgumentParser:
     init = config_commands.add_parser("init", help="write a project configuration")
     init.add_argument("--file", type=Path, default=Path("txsuite.toml"))
     init.add_argument("--force", action="store_true")
+
+    project = commands.add_parser(
+        "project", help="scaffold, inspect, and run project workflows"
+    )
+    project_commands = project.add_subparsers(
+        dest="project_command", required=True
+    )
+    project_init = project_commands.add_parser(
+        "init", help="scaffold a packaged project preset"
+    )
+    project_init.add_argument("--preset", required=True)
+    project_init.add_argument("target", type=Path)
+
+    project_validate = project_commands.add_parser(
+        "validate", help="validate and fully plan a project workflow"
+    )
+    project_validate.add_argument("workflow", type=Path)
+    project_validate.add_argument(
+        "--config", type=Path, default=Path("txsuite.toml")
+    )
+
+    project_plan = project_commands.add_parser(
+        "plan", help="render a side-effect-free project command plan"
+    )
+    project_plan.add_argument("workflow", type=Path)
+    project_plan.add_argument(
+        "--config", type=Path, default=Path("txsuite.toml")
+    )
+    project_plan.add_argument("--json", action="store_true")
+
+    project_run = project_commands.add_parser(
+        "run", help="plan and execute a project workflow"
+    )
+    project_run.add_argument("workflow", type=Path)
+    project_run.add_argument(
+        "--config", type=Path, default=Path("txsuite.toml")
+    )
+    project_run.add_argument("--dry-run", action="store_true")
+    project_run.add_argument("--resume", action="store_true")
+    project_run.add_argument("--from", dest="from_stage")
+    project_run.add_argument("--to", dest="to_stage")
+    project_run.add_argument("--stages")
+    project_run.add_argument("--run-id")
+
+    project_status = project_commands.add_parser(
+        "status", help="show the immutable manifest view of a project run"
+    )
+    project_status.add_argument("run_dir", type=Path)
 
     workflow = commands.add_parser(
         "workflow", help="run complete transcriptomics workflows"
@@ -268,6 +330,210 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _load_project_plan(workflow_path: Path, config_path: Path):
+    """Load both configuration layers and cross the full planning boundary."""
+
+    workflow = load_project_config(workflow_path)
+    global_config = load_config(config_path)
+    return workflow, global_config, plan_workflow(workflow, global_config)
+
+
+def _selected_project_stages(value: str | None) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    selected = tuple(item.strip() for item in value.split(",") if item.strip())
+    if not selected:
+        raise TxSuiteError("--stages must contain at least one stage ID")
+    if len(selected) != len(set(selected)):
+        raise TxSuiteError("--stages must not contain duplicate stage IDs")
+    return selected
+
+
+def _effective_project_stages(
+    plan,
+    *,
+    selected_stage_ids: tuple[str, ...] | None,
+    from_stage: str | None,
+    to_stage: str | None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return requested stages plus their transitive prerequisites in plan order."""
+
+    stages = plan.to_dict()["stages"]
+    requested = select_stages(
+        stages,
+        selected_stage_ids=selected_stage_ids,
+        from_stage=from_stage,
+        to_stage=to_stage,
+    )
+    requested_ids = tuple(str(stage["id"]) for stage in requested)
+    dependencies = {
+        str(stage["id"]): tuple(str(item) for item in stage.get("depends_on", ()))
+        for stage in stages
+    }
+    included = set(requested_ids)
+    pending = list(requested_ids)
+    while pending:
+        stage_id = pending.pop()
+        for dependency in dependencies[stage_id]:
+            if dependency not in included:
+                included.add(dependency)
+                pending.append(dependency)
+
+    effective = tuple(
+        str(stage["id"]) for stage in stages if str(stage["id"]) in included
+    )
+    requested_set = set(requested_ids)
+    auto_added = tuple(stage_id for stage_id in effective if stage_id not in requested_set)
+    return effective, auto_added
+
+
+def _render_project_run_plan(
+    plan, effective_stage_ids: tuple[str, ...], auto_added: tuple[str, ...]
+) -> str:
+    included = set(effective_stage_ids)
+    selected_plan = replace(
+        plan,
+        stages=tuple(stage for stage in plan.stages if stage.id in included),
+    )
+    lines = [f"Selected stages: {', '.join(effective_stage_ids)}"]
+    if auto_added:
+        lines.append(f"Auto-added prerequisites: {', '.join(auto_added)}")
+    lines.extend(("", render_plan(selected_plan, format="human")))
+    return "\n".join(lines)
+
+
+def _project_runs_dir(workflow) -> Path:
+    return workflow.project.output_root / workflow.project.id / "runs"
+
+
+def _load_project_bundle(run_dir: Path) -> tuple[RunBundle, dict]:
+    try:
+        bundle = RunBundle.load(run_dir)
+        manifest = bundle.manifest()
+    except (OSError, ValueError, KeyError, ProvenanceError) as exc:
+        raise TxSuiteError(f"Cannot read run bundle {run_dir}: {exc}") from exc
+    if (
+        not isinstance(manifest.get("run_id"), str)
+        or not isinstance(manifest.get("status"), str)
+        or not isinstance(manifest.get("hashes"), dict)
+    ):
+        raise TxSuiteError(
+            f"Invalid run manifest {bundle.manifest_path}: "
+            "run_id, status, and hashes are required"
+        )
+    return bundle, manifest
+
+
+def _require_compatible_resume(
+    bundle: RunBundle, manifest: dict, workflow, global_config: dict, plan
+) -> None:
+    stored = manifest["hashes"]
+    current = {
+        "workflow": hash_payload(workflow.to_dict()),
+        "resolved_config": hash_payload(global_config),
+        "command_plan": hash_payload(plan.to_dict()),
+    }
+    labels = {
+        "workflow": "workflow",
+        "resolved_config": "resolved configuration",
+        "command_plan": "command plan",
+    }
+    changed = [
+        labels[name]
+        for name, digest in current.items()
+        if stored.get(name) != digest
+    ]
+    if changed:
+        raise TxSuiteError(
+            f"Cannot resume run {bundle.run_id!r}: immutable "
+            f"{', '.join(changed)} snapshot changed. "
+            "Start a new run with a new --run-id."
+        )
+
+
+def _run_project_command(args: argparse.Namespace) -> int:
+    if args.project_command == "init":
+        print(scaffold_project_preset(args.preset, args.target))
+        return 0
+
+    if args.project_command == "status":
+        _, manifest = _load_project_bundle(args.run_dir)
+        print(json.dumps(manifest, indent=2, sort_keys=True))
+        return 0
+
+    workflow, global_config, plan = _load_project_plan(args.workflow, args.config)
+    if args.project_command == "validate":
+        print(
+            f"Valid project workflow: {workflow.source_path} "
+            f"({len(plan.stages)} stage(s))"
+        )
+        return 0
+    if args.project_command == "plan":
+        print(render_plan(plan, format="json" if args.json else "human"))
+        return 0
+    if args.project_command != "run":
+        raise TxSuiteError(f"Unknown project command: {args.project_command}")
+
+    selected = _selected_project_stages(args.stages)
+    # Expand dependencies before a dry run returns and before an actual run writes.
+    effective_stage_ids, auto_added = _effective_project_stages(
+        plan,
+        selected_stage_ids=selected,
+        from_stage=args.from_stage,
+        to_stage=args.to_stage,
+    )
+    if args.dry_run:
+        print(_render_project_run_plan(plan, effective_stage_ids, auto_added))
+        return 0
+
+    runs_dir = _project_runs_dir(workflow)
+    if args.resume:
+        if args.run_id is None:
+            raise TxSuiteError("--resume requires --run-id to identify an existing run")
+        run_dir = runs_dir / args.run_id
+        if (
+            run_dir.parent != runs_dir
+            or run_dir.resolve(strict=False).parent
+            != runs_dir.resolve(strict=False)
+        ):
+            raise TxSuiteError(f"Unsafe run ID: {args.run_id!r}")
+        if not run_dir.is_dir():
+            raise TxSuiteError(f"Cannot resume missing run bundle: {run_dir}")
+        bundle, manifest = _load_project_bundle(run_dir)
+        if bundle.run_id != args.run_id:
+            raise TxSuiteError(
+                f"Cannot resume run {args.run_id!r}: manifest identifies "
+                f"run {bundle.run_id!r}"
+            )
+        _require_compatible_resume(
+            bundle, manifest, workflow, global_config, plan
+        )
+    else:
+        bundle = RunBundle.create(
+            runs_dir,
+            run_id=args.run_id,
+            workflow=workflow.to_dict(),
+            resolved_config=global_config,
+            command_plan=plan,
+        )
+
+    try:
+        ProjectExecutor(bundle).execute(
+            plan.to_dict(),
+            resume=args.resume,
+            config_hash=hash_payload(global_config),
+            selected_stage_ids=effective_stage_ids,
+            raise_on_failure=True,
+        )
+    except StageExecutionError as exc:
+        raise TxSuiteError(f"{exc}; run directory: {exc.run_dir}") from exc
+    print(bundle.run_dir)
+    print(f"Selected stages: {', '.join(effective_stage_ids)}")
+    if auto_added:
+        print(f"Auto-added prerequisites: {', '.join(auto_added)}")
+    return 0
+
+
 def run(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -285,6 +551,8 @@ def run(argv: list[str] | None = None) -> int:
             args.file.write_text(DEFAULT_TOML, encoding="utf-8")
             print(args.file)
             return 0
+        if args.command == "project":
+            return _run_project_command(args)
         if args.command == "workflow" and args.workflow_command == "bulk":
             config = load_config(args.config)
             validate_bulk_samplesheet(args.input)
@@ -851,7 +1119,15 @@ def run(argv: list[str] | None = None) -> int:
             else:
                 build_spatial_image(tag, run_dir=run_dir)
             return 0
-    except (ConfigError, TxSuiteError) as exc:
+    except (
+        ConfigError,
+        WorkflowConfigError,
+        ProvenanceError,
+        TxSuiteError,
+        OSError,
+        ValueError,
+        KeyError,
+    ) as exc:
         print(f"error: {exc}")
         return 2
     return 0

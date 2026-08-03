@@ -88,8 +88,10 @@ def analysis_command(
     min_cells: int,
     max_mito_pct: float,
     resolution: float,
+    check_inputs: bool = True,
+    container_target: str | None = None,
 ) -> list[str]:
-    if not input_path.exists():
+    if check_inputs and not input_path.exists():
         raise TxSuiteError(f"Single-cell input does not exist: {input_path}")
     if not image.strip():
         raise TxSuiteError("Single-cell image cannot be empty")
@@ -99,7 +101,14 @@ def analysis_command(
         )
     if resolution <= 0:
         raise TxSuiteError("Leiden resolution must be positive")
-    target = "/input/data" if input_path.is_dir() else f"/input/{input_path.name}"
+    if container_target is not None:
+        if not re.fullmatch(r"/input/[A-Za-z0-9._-]+", container_target):
+            raise TxSuiteError(
+                "Single-cell container target must be a simple absolute path below /input"
+            )
+        target = container_target
+    else:
+        target = "/input/data" if input_path.is_dir() else f"/input/{input_path.name}"
     return [
         "docker",
         "run",
@@ -126,9 +135,15 @@ def analysis_command(
 
 
 def pseudobulk_command(
-    *, image: str, h5ad: Path, outdir: Path, sample_column: str, design: str
+    *,
+    image: str,
+    h5ad: Path,
+    outdir: Path,
+    sample_column: str,
+    design: str,
+    check_inputs: bool = True,
 ) -> list[str]:
-    if not h5ad.is_file():
+    if check_inputs and not h5ad.is_file():
         raise TxSuiteError(f"H5AD file does not exist: {h5ad}")
     if not image.strip():
         raise TxSuiteError("Single-cell image cannot be empty")
@@ -172,8 +187,9 @@ def pseudobulk_workflow_command(
     top_genes: int = 50,
     nextflow_config: Path | None = None,
     resume: bool = False,
+    check_inputs: bool = True,
 ) -> list[str]:
-    if not h5ad.is_file():
+    if check_inputs and not h5ad.is_file():
         raise TxSuiteError(f"H5AD file does not exist: {h5ad}")
     for label, value in (("Sample column", sample_column), ("Design", design)):
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", value):

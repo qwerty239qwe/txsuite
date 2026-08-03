@@ -1,0 +1,47 @@
+schema_version = 1
+
+[project]
+id = "bulk_rnaseq_example"
+modality = "bulk"
+output_root = "results"
+
+[execution]
+profile = "docker"
+resume = true
+
+[[workflow.stages]]
+id = "rnaseq"
+uses = "bulk.rnaseq"
+
+[workflow.stages.inputs]
+samplesheet = "samplesheet.csv"
+
+[workflow.stages.params]
+params_file = "rnaseq-params.json"
+
+[[workflow.stages]]
+id = "differential"
+uses = "bulk.de"
+depends_on = ["rnaseq"]
+
+[workflow.stages.inputs]
+counts = "${rnaseq.counts}"
+metadata = "metadata.tsv"
+
+[workflow.stages.params]
+design = "condition"
+reference = "control"
+test = "treated"
+covariates = ["batch"]
+
+[[workflow.stages]]
+id = "enrichment"
+uses = "bulk.enrichment"
+depends_on = ["differential"]
+
+[workflow.stages.inputs]
+de_results = "${differential.de_results}"
+genesets = "genesets.gmt"
+
+[workflow.stages.params]
+mode = "ora"

@@ -1,0 +1,10 @@
+{
+  "dependencies": {"a_de": ["raw"], "raw": [], "z_de": ["raw"]},
+  "order": ["raw", "a_de", "z_de"],
+  "outputs": {
+    "a_de": {"de_results": "/work/results/a_de/deseq2-results.tsv", "results": "/work/results/a_de"},
+    "raw": {"counts": "/work/artifacts/counts.tsv", "multiqc_report": "${raw.multiqc_report}", "results": "/work/results/raw"},
+    "z_de": {"de_results": "/work/results/z_de/deseq2-results.tsv", "results": "/work/results/z_de"}
+  },
+  "states": {"a_de": "resolved", "raw": "resolved", "z_de": "resolved"}
+}

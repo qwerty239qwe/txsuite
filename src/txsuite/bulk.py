@@ -202,10 +202,12 @@ def enrichment_command(
     min_size: int = 10,
     max_size: int = 500,
     adjust: str = "BH",
+    check_inputs: bool = True,
 ) -> list[str]:
-    for label, path in (("DE results", de_results), ("GMT gene sets", genesets)):
-        if not path.is_file():
-            raise TxSuiteError(f"{label} file does not exist: {path}")
+    if check_inputs:
+        for label, path in (("DE results", de_results), ("GMT gene sets", genesets)):
+            if not path.is_file():
+                raise TxSuiteError(f"{label} file does not exist: {path}")
     if mode not in {"ora", "gsea"}:
         raise TxSuiteError("Enrichment mode must be 'ora' or 'gsea'")
     if not image.strip():

@@ -16,11 +16,29 @@ the biological algorithms.
 
 ## Product surface
 
-1. **Workflow API**: reproducible raw-data pipelines.
-2. **CLI API**: individual QC, alignment, and analysis tasks.
-3. **Python API**: downstream operations on AnnData and SpatialData objects.
+1. **Project workflow API**: typed, multi-stage workflows planned from schema
+   version 1 and stored as resumable run bundles.
+2. **Workflow API**: focused launchers for reproducible raw-data pipelines.
+3. **CLI API**: individual QC, alignment, and analysis tasks.
+4. **Python API**: downstream operations on AnnData and SpatialData objects.
 
-All three APIs will use the same configuration and emit the same run manifest.
+The project workflow API is the convergence path for one configuration,
+artifact graph, and provenance format. Existing focused commands retain their
+legacy task manifests for compatibility.
+
+## Current project orchestration
+
+Implemented foundations include strict schema loading, a typed stage registry,
+deterministic planning, three packaged presets, stage selection, atomic redacted
+run bundles, immutable attempt history, output verification, and hash-based
+resume. nf-core raw stages defer unknown result paths until postflight; pinned
+release adapters then resolve unique artifacts and materialize downstream argv
+without a shell.
+
+The control-plane behavior is covered by synthetic CI tests. It does not change
+the maturity of raw backends: Docker and Apptainer FASTQ smokes, public spatial
+data validation, licensed Space Ranger execution, and published image digests
+remain external release blockers.
 
 ## Environment ownership
 
@@ -138,9 +156,10 @@ manifest without TxSuite redistributing licensed software.
 
 Implementation status: checksum-verified reference caching, immutable image
 validation, native resume guidance, a custom Nextflow config hook, SLURM example,
-release/compatibility documentation, and GHCR publishing automation are
-implemented. Published image digests and the external raw-data smoke matrix
-remain release blockers.
+release/compatibility documentation, redacted project bundles, immutable attempt
+records, artifact-aware resume, wheel resource audits, and GHCR publishing
+automation are implemented. Published image digests and the external raw-data
+smoke matrix remain release blockers.
 
 Deliver only after the three modality smoke tests pass:
 
@@ -166,6 +185,26 @@ Deliver:
 
 Done when each native DAG has a small real-data Docker smoke test, an Apptainer
 smoke test, and documented result artifacts.
+
+### Phase 6 — project workflow convergence
+
+Implementation status: schema v1, deterministic planning, presets, execution,
+deferred nf-core artifact resolution, and project provenance are implemented.
+The immediate work is external validation and stabilization rather than adding
+new stage types.
+
+Deliver:
+
+- stable project CLI and Python contracts across the supported Python matrix;
+- installed-wheel schema and preset availability;
+- release-specific postflight adapters with ambiguity failures and evidence;
+- documentation for automation, result bundles, security, compatibility, and
+  release gates;
+- migration guidance where legacy single-command manifests differ.
+
+Done when packaged presets complete their documented real-data backend matrix,
+resume correctly on Docker and Apptainer, and all published images are locked by
+digest.
 
 ## Backend maturity labels
 

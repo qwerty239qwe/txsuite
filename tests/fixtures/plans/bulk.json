@@ -1,0 +1,10 @@
+{
+  "dependencies": {"de": ["raw"], "enrich": ["de"], "raw": []},
+  "order": ["raw", "de", "enrich"],
+  "outputs": {
+    "de": {"de_results": "/work/results/de/deseq2-results.tsv", "results": "/work/results/de"},
+    "enrich": {"results": "/work/results/enrich"},
+    "raw": {"counts": "${raw.counts}", "multiqc_report": "${raw.multiqc_report}", "results": "/work/results/raw"}
+  },
+  "states": {"de": "deferred", "enrich": "resolved", "raw": "resolved"}
+}

@@ -1,0 +1,9 @@
+{
+  "dependencies": {"raw": [], "scanpy": ["raw"]},
+  "order": ["raw", "scanpy"],
+  "outputs": {
+    "raw": {"matrix": "${raw.matrix}", "multiqc_report": "${raw.multiqc_report}", "results": "/work/results/raw"},
+    "scanpy": {"h5ad": "/work/results/scanpy/analysis.h5ad"}
+  },
+  "states": {"raw": "resolved", "scanpy": "deferred"}
+}

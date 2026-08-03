@@ -25,6 +25,48 @@ python -m unittest discover -s tests
 The supported tool matrix and delivery phases are in
 [docs/roadmap.md](docs/roadmap.md).
 
+## Project workflows
+
+The project interface plans and runs several typed stages from one versioned
+`workflow.toml`. Start from a packaged preset; the target directory must not
+already exist:
+
+```bash
+txsuite project init --preset bulk-rnaseq my-analysis
+cd my-analysis
+txsuite project validate workflow.toml
+txsuite project plan workflow.toml
+txsuite project run workflow.toml --dry-run
+txsuite project run workflow.toml
+```
+
+`validate` resolves paths, stage contracts, parameters, dependencies, and the
+complete command plan without executing tools. `plan` prints the deterministic
+plan; add `--json` for machine-readable output. `run` prints the new run-bundle
+directory after completion. Inspect it later with:
+
+```bash
+txsuite project status results/PROJECT_ID/runs/RUN_ID
+```
+
+Select an inclusive range with `--from STAGE --to STAGE`, or a comma-separated
+set with `--stages STAGE_A,STAGE_B`. Resume an existing bundle explicitly:
+
+```bash
+txsuite project run workflow.toml --resume --run-id RUN_ID
+```
+
+Resume skips a completed stage only when its resolved command, parameters,
+declared inputs, configuration, and required artifacts still match. Raw
+nf-core outputs are resolved after the producer succeeds; downstream symbolic
+inputs such as `${rnaseq.counts}` are never passed to a subprocess unresolved.
+
+Available presets are `bulk-rnaseq`, `scrnaseq`, and
+`scrnaseq-pseudobulk`. Replace every placeholder input before running. See the
+[workflow schema](docs/workflow-schema.md),
+[run-bundle layout](docs/results-layout.md), and
+[automation guidance](docs/agent-workflows.md).
+
 ## Bulk RNA-seq
 
 TxSuite delegates raw-read QC, trimming, alignment, and quantification to the
@@ -204,3 +246,12 @@ Release configurations must use immutable `image@sha256:digest` references;
 `docs/slurm.md`, `docs/compatibility.md`, and `docs/release.md` for cluster and
 release checks. The `containers` GitHub Actions workflow publishes all three
 owned images to GHCR from version tags or a manual run.
+
+## Project documentation
+
+- [Roadmap and maturity](docs/roadmap.md)
+- [Compatibility and current limits](docs/compatibility.md)
+- [Workflow schema v1](docs/workflow-schema.md)
+- [Run bundles and result provenance](docs/results-layout.md)
+- [Agent and automation workflows](docs/agent-workflows.md)
+- [Release checklist](docs/release.md)

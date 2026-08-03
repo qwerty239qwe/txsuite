@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://txsuite.dev/schemas/project-workflow-v1.json",
+  "title": "TxSuite project workflow schema v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project", "execution", "workflow"],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "TOML input must use integer 1. JSON itself does not distinguish the integer 1 from the numerically equal number 1.0."
+    },
+    "project": {"$ref": "#/$defs/project"},
+    "execution": {"$ref": "#/$defs/execution"},
+    "workflow": {"$ref": "#/$defs/workflow"}
+  },
+  "$defs": {
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "modality", "output_root"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"},
+        "modality": {
+          "enum": ["bulk", "single-cell", "spatial"]
+        },
+        "output_root": {"type": "string", "pattern": "\\S"}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "resume"],
+      "properties": {
+        "profile": {"enum": ["docker", "apptainer"]},
+        "resume": {"type": "boolean"}
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stages"],
+      "properties": {
+        "stages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/stage"}
+        }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "uses"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"},
+        "uses": {"type": "string", "pattern": "\\S"},
+        "depends_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"}
+        },
+        "inputs": {"$ref": "#/$defs/inputObject"},
+        "params": {"$ref": "#/$defs/objectValue"},
+        "outputs": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[A-Za-z][A-Za-z0-9_-]*$"},
+          "additionalProperties": {"type": "string", "pattern": "\\S"}
+        }
+      }
+    },
+    "inputObject": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/inputValue"}
+    },
+    "inputValue": {
+      "anyOf": [
+        {"$ref": "#/$defs/inputString"},
+        {"type": ["number", "boolean", "null"]},
+        {"type": "array", "items": {"$ref": "#/$defs/inputValue"}},
+        {"$ref": "#/$defs/inputObject"}
+      ]
+    },
+    "inputString": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^\\$\\{[A-Za-z][A-Za-z0-9_-]*\\.[A-Za-z][A-Za-z0-9_-]*\\}(?![\\s\\S])"
+        },
+        {
+          "type": "string",
+          "pattern": "^(?![\\s\\S]*\\$\\{)(?=[\\s\\S]*\\S)[\\s\\S]*(?![\\s\\S])"
+        }
+      ]
+    },
+    "objectValue": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/value"}
+    },
+    "value": {
+      "anyOf": [
+        {"type": ["string", "number", "boolean", "null"]},
+        {"type": "array", "items": {"$ref": "#/$defs/value"}},
+        {"$ref": "#/$defs/objectValue"}
+      ]
+    }
+  }
+}

@@ -19,7 +19,36 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -e .
+      - run: python -m compileall -q src
       - run: python -m unittest discover -s tests -v
+
+  package:
+    runs-on: ubuntu-latest
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip wheel --no-deps --wheel-dir dist .
+      - id: wheel
+        shell: bash
+        run: echo "path=$(find dist -maxdepth 1 -name '*.whl' -print -quit)" >> "$GITHUB_OUTPUT"
+      - name: Inspect wheel resources offline
+        env:
+          TXSUITE_WHEEL: ${{ steps.wheel.outputs.path }}
+        run: python -m unittest -v tests.test_packaging
+      - run: python -m venv /tmp/txsuite-wheel-smoke
+      - run: /tmp/txsuite-wheel-smoke/bin/python -m pip install --no-deps "${{ steps.wheel.outputs.path }}"
+      - name: Smoke installed resources outside the checkout
+        working-directory: /tmp
+        run: >-
+          /tmp/txsuite-wheel-smoke/bin/python -c
+          "from importlib import resources;
+          root=resources.files('txsuite.resources.project');
+          assert root.joinpath('workflow.schema.json').is_file();
+          assert root.joinpath('presets','bulk-rnaseq','workflow.toml').is_file()"
 
   nextflow-smoke:
     runs-on: ubuntu-latest

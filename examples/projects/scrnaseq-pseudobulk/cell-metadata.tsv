@@ -1,0 +1,5 @@
+barcode	sample	condition
+AAACCCAAGAAACACT-1	control_1	control
+AAACCCAAGAAACCAT-1	control_2	control
+AAACCCAAGAAACCCA-1	treated_1	treated
+AAACCCAAGAAACCCG-1	treated_2	treated

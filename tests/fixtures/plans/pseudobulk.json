@@ -1,0 +1,9 @@
+{
+  "dependencies": {"native_de": [], "pseudobulk": []},
+  "order": ["native_de", "pseudobulk"],
+  "outputs": {
+    "native_de": {"de_results": "/work/results/native_de/deseq2/deseq2-results.tsv", "results": "/work/results/native_de"},
+    "pseudobulk": {"counts": "/work/results/pseudobulk/pseudobulk-counts.tsv", "metadata": "/work/results/pseudobulk/pseudobulk-metadata.tsv"}
+  },
+  "states": {"native_de": "resolved", "pseudobulk": "resolved"}
+}
