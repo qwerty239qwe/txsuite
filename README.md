@@ -198,6 +198,63 @@ accepts `--nextflow-config` for cluster settings. The original
 `txsuite single-cell pseudobulk-de` command remains available for running the
 same two container steps directly without Nextflow.
 
+### Cell Ranger
+
+`--aligner cellranger` above delegates to nf-core/scrnaseq's own Cell Ranger
+module. For a standalone reference build and count, TxSuite also ships a native
+resumable `mkref` + `count` Nextflow DAG that calls a user-installed
+`cellranger` directly; TxSuite never downloads, bundles, or licenses Cell
+Ranger itself.
+
+Build a GRCh38.p14 reference once from GENCODE (verify each SHA-256 against the
+[release's published checksum](https://www.gencodegenes.org/human/) before
+caching):
+
+```bash
+txsuite reference cache \
+  --source https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_50/GRCh38.primary_assembly.genome.fa.gz \
+  --sha256 PUBLISHED_64_CHARACTER_SHA256 \
+  --name GRCh38.primary_assembly.genome.fa.gz
+
+txsuite reference cache \
+  --source https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_50/gencode.v50.primary_assembly.annotation.gtf.gz \
+  --sha256 PUBLISHED_64_CHARACTER_SHA256 \
+  --name gencode.v50.primary_assembly.annotation.gtf.gz
+
+gunzip -k .txsuite/references/GRCh38.primary_assembly.genome.fa.gz
+gunzip -k .txsuite/references/gencode.v50.primary_assembly.annotation.gtf.gz
+
+uv run txsuite workflow single-cell-cellranger \
+  --genome-name GRCh38.p14 \
+  --fasta .txsuite/references/GRCh38.primary_assembly.genome.fa \
+  --gtf .txsuite/references/gencode.v50.primary_assembly.annotation.gtf \
+  --fastqs fastqs/sample1 \
+  --sample sample1 \
+  --outdir results/cellranger \
+  --dry-run
+```
+
+Reuse a reference already built by a prior run with `--reference
+results/cellranger/reference/GRCh38.p14` instead of `--fasta`/`--gtf`; the DAG
+skips `mkref` when a reference path is supplied. `-resume` also skips `mkref`
+once its cached output matches. `count` output lands under
+`results/cellranger/counts/SAMPLE/outs/filtered_feature_bc_matrix`, in the same
+10x layout that `single-cell analyze` accepts.
+
+The `docker` and `apptainer` profiles run this DAG inside a container, but
+TxSuite has no image to default to: build one locally from your own
+EULA-accepted download and pass its tag through `--cellranger-image`:
+
+```bash
+uv run txsuite env build cellranger \
+  --tag txsuite/cellranger:local \
+  --source-tarball ~/downloads/cellranger-9.0.1.tar.gz
+```
+
+`env build cellranger` only packages the install recipe; it copies your
+tarball into the build context and never fetches or redistributes it. The
+`local` profile instead runs the `cellranger` binary directly from `PATH`.
+
 ## Spatial transcriptomics
 
 TxSuite discovers but does not install or redistribute Space Ranger. Preview a

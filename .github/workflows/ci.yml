@@ -66,3 +66,14 @@ jobs:
           --outdir /tmp/txsuite-nextflow-results
           --single_cell_image txsuite/single-cell-python:stub
           --bulk_image txsuite/bulk-r:stub
+      - run: mkdir -p /tmp/txsuite-cellranger-fastqs && touch /tmp/txsuite-cellranger-genome.fa /tmp/txsuite-cellranger-genes.gtf
+      - run: >-
+          nextflow run src/txsuite/resources/nextflow/single_cell_cellranger.nf
+          -stub-run -profile local
+          -work-dir /tmp/txsuite-cellranger-work
+          --genome_name GRCh38.p14
+          --fasta /tmp/txsuite-cellranger-genome.fa
+          --gtf /tmp/txsuite-cellranger-genes.gtf
+          --fastqs /tmp/txsuite-cellranger-fastqs
+          --sample sample1
+          --outdir /tmp/txsuite-cellranger-results

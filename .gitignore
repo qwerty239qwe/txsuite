@@ -6,3 +6,5 @@ dist/
 build/
 .txsuite/
 .tokensave
+.nextflow/
+.nextflow.log*

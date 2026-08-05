@@ -254,6 +254,156 @@ def pseudobulk_workflow_command(
     return command
 
 
+def cellranger_workflow_command(
+    config: dict[str, Any],
+    *,
+    genome_name: str,
+    fastqs: Path,
+    sample: str,
+    outdir: Path,
+    fasta: Path | None = None,
+    gtf: Path | None = None,
+    reference: Path | None = None,
+    cellranger_image: str | None = None,
+    threads: int = 4,
+    memory_gb: int = 8,
+    create_bam: bool = True,
+    nextflow_config: Path | None = None,
+    resume: bool = False,
+    check_inputs: bool = True,
+) -> list[str]:
+    """Build the native mkref+count Cell Ranger Nextflow DAG.
+
+    Cell Ranger itself is never bundled: ``cellranger_image`` must name an image
+    the caller already built with :func:`build_cellranger_image` from their own
+    licensed download, and bare ``local``/``docker`` execution still requires a
+    user-installed ``cellranger`` on ``PATH`` or inside that image.
+    """
+
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", genome_name):
+        raise TxSuiteError(
+            "Cell Ranger genome name may contain only letters, numbers, ., _ and -"
+        )
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", sample):
+        raise TxSuiteError("Cell Ranger sample may contain only letters, numbers, _ and -")
+    if bool(reference) == bool(fasta or gtf):
+        raise TxSuiteError(
+            "Pass either --reference, or both --fasta and --gtf to build one"
+        )
+    if bool(fasta) != bool(gtf):
+        raise TxSuiteError("Building a reference requires both --fasta and --gtf")
+    if threads < 1 or memory_gb < 1:
+        raise TxSuiteError("Cell Ranger threads and memory must be positive")
+    if check_inputs:
+        if not fastqs.is_dir():
+            raise TxSuiteError(f"FASTQ directory does not exist: {fastqs}")
+        if reference is not None and not reference.is_dir():
+            raise TxSuiteError(f"Cell Ranger reference does not exist: {reference}")
+        if fasta is not None and not fasta.is_file():
+            raise TxSuiteError(f"Genome FASTA does not exist: {fasta}")
+        if gtf is not None and not gtf.is_file():
+            raise TxSuiteError(f"Annotation GTF does not exist: {gtf}")
+    if nextflow_config is not None and not nextflow_config.is_file():
+        raise TxSuiteError(f"Nextflow config does not exist: {nextflow_config}")
+
+    workflow = resources.files("txsuite.resources.nextflow").joinpath(
+        "single_cell_cellranger.nf"
+    )
+    command = [
+        "nextflow",
+        "run",
+        str(workflow),
+        "-profile",
+        config["execution"]["profile"],
+        "-work-dir",
+        str((outdir / ".nextflow-work").resolve()),
+    ]
+    if nextflow_config is not None:
+        command.extend(["-c", str(nextflow_config.resolve())])
+    if resume:
+        command.append("-resume")
+    command.extend(
+        [
+            "--genome_name",
+            genome_name,
+            "--fastqs",
+            str(fastqs.resolve()),
+            "--sample",
+            sample,
+            "--outdir",
+            str(outdir.resolve()),
+            "--cellranger_threads",
+            str(threads),
+            "--cellranger_memory_gb",
+            str(memory_gb),
+            "--cellranger_create_bam",
+            "true" if create_bam else "false",
+        ]
+    )
+    if reference is not None:
+        command.extend(["--cellranger_reference", str(reference.resolve())])
+    else:
+        command.extend(
+            [
+                "--fasta",
+                str(fasta.resolve()),
+                "--gtf",
+                str(gtf.resolve()),
+            ]
+        )
+    if cellranger_image:
+        command.extend(["--cellranger_image", cellranger_image])
+    return command
+
+
+def build_cellranger_image(tag: str, *, source_tarball: Path, run_dir: Path) -> None:
+    """Build a local Cell Ranger image from a tarball the caller already licensed.
+
+    TxSuite packages only the install recipe. ``source_tarball`` must already be
+    on disk, downloaded by the caller from their own 10x Genomics account; it is
+    copied into the build context and never fetched or redistributed by TxSuite.
+    """
+
+    if not tag.strip():
+        raise TxSuiteError("Image tag cannot be empty")
+    if not source_tarball.is_file():
+        raise TxSuiteError(f"Cell Ranger tarball does not exist: {source_tarball}")
+    package = resources.files("txsuite.resources.cellranger")
+    with tempfile.TemporaryDirectory(prefix="txsuite-cellranger-") as directory:
+        context = Path(directory)
+        (context / "Dockerfile").write_text(
+            package.joinpath("Dockerfile").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        tarball_name = source_tarball.name
+        with (context / tarball_name).open("wb") as destination:
+            with source_tarball.open("rb") as source:
+                destination.write(source.read())
+        run_command(
+            [
+                "docker",
+                "build",
+                "--tag",
+                tag,
+                "--build-arg",
+                f"CELLRANGER_TARBALL={tarball_name}",
+                str(context),
+            ],
+            run_dir=run_dir,
+            task="env.build.cellranger",
+            backend="docker",
+            inputs={"source_tarball": str(source_tarball.resolve())},
+            outputs={"image": tag},
+            artifacts=[
+                {
+                    "kind": "container-image",
+                    "label": "cellranger",
+                    "path": tag,
+                }
+            ],
+        )
+
+
 def build_single_cell_image(tag: str, *, run_dir: Path) -> None:
     if not tag.strip():
         raise TxSuiteError("Image tag cannot be empty")

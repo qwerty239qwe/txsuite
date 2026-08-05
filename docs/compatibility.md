@@ -10,6 +10,7 @@ Validated versions for the 0.1 development line:
 | Project presets | bulk-rnaseq, scrnaseq, scrnaseq-pseudobulk | packaged-resource and planning tests |
 | nf-core/rnaseq | 3.26.0 | launcher tested; external raw-data smoke pending |
 | nf-core/scrnaseq | 4.2.0 | launcher tested; external raw-data smoke pending |
+| Cell Ranger (native `mkref`+`count` DAG) | user-installed | stub DAG tested in CI; licensed smoke pending |
 | Space Ranger | 4.1.0 | external, user-installed; licensed smoke pending |
 | Spacemake | 0.9.1b | experimental pass-through |
 | DESeq2 | 1.52.0 / Bioconductor 3.23 | covariate-aware DE and plot smoke passed |
@@ -42,7 +43,10 @@ downloads run in CI.
   upstream output layout or release requires a new or updated adapter and an
   explicit compatibility test; TxSuite does not guess across releases.
 - Cell Ranger and Space Ranger remain external, user-installed licensed tools.
-  Project orchestration does not install them or grant a license.
+  Project orchestration does not install them or grant a license. The native
+  Cell Ranger `mkref`+`count` DAG (`txsuite workflow single-cell-cellranger`)
+  and `env build cellranger` are not part of the schema v1 project workflow
+  system, matching how Space Ranger is also invoked outside it.
 - Presets contain placeholders and tiny syntax fixtures, not reference genomes,
   FASTQs, or validated biological examples.
 

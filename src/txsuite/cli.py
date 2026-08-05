@@ -34,7 +34,9 @@ from txsuite.project import (
 from txsuite.runtime import TxSuiteError, format_command, run_command
 from txsuite.single_cell import (
     analysis_command,
+    build_cellranger_image,
     build_single_cell_image,
+    cellranger_workflow_command,
     pseudobulk_command,
     pseudobulk_workflow_command,
     validate_samplesheet as validate_single_cell_samplesheet,
@@ -180,6 +182,29 @@ def _parser() -> argparse.ArgumentParser:
     pseudobulk_workflow.add_argument("--resume", action="store_true")
     pseudobulk_workflow.add_argument("--dry-run", action="store_true")
 
+    cellranger_workflow = workflow_commands.add_parser(
+        "single-cell-cellranger",
+        help="run user-installed Cell Ranger as a native mkref+count Nextflow DAG",
+    )
+    cellranger_workflow.add_argument("--genome-name", required=True)
+    cellranger_workflow.add_argument("--fastqs", type=Path, required=True)
+    cellranger_workflow.add_argument("--sample", required=True)
+    cellranger_workflow.add_argument("--fasta", type=Path)
+    cellranger_workflow.add_argument("--gtf", type=Path)
+    cellranger_workflow.add_argument("--reference", type=Path)
+    cellranger_workflow.add_argument("--cellranger-image")
+    cellranger_workflow.add_argument("--threads", type=int, default=4)
+    cellranger_workflow.add_argument("--memory-gb", type=int, default=8)
+    cellranger_workflow.add_argument("--no-bam", action="store_true")
+    cellranger_workflow.add_argument("--outdir", type=Path, required=True)
+    cellranger_workflow.add_argument("--nextflow-config", type=Path)
+    cellranger_workflow.add_argument(
+        "--config", type=Path, default=Path("txsuite.toml")
+    )
+    cellranger_workflow.add_argument("--run-dir", type=Path)
+    cellranger_workflow.add_argument("--resume", action="store_true")
+    cellranger_workflow.add_argument("--dry-run", action="store_true")
+
     spatial_workflow = workflow_commands.add_parser(
         "spatial", help="run user-installed Space Ranger 4.1"
     )
@@ -321,9 +346,15 @@ def _parser() -> argparse.ArgumentParser:
     verify_images.add_argument("--config", type=Path, default=Path("txsuite.toml"))
     build = env_commands.add_parser("build", help="build a TxSuite-owned image")
     build.add_argument(
-        "environment", choices=("bulk-r", "single-cell-python", "spatial-python")
+        "environment",
+        choices=("bulk-r", "single-cell-python", "spatial-python", "cellranger"),
     )
     build.add_argument("--tag")
+    build.add_argument(
+        "--source-tarball",
+        type=Path,
+        help="user-downloaded cellranger-*.tar.gz (required for 'cellranger')",
+    )
     build.add_argument("--config", type=Path, default=Path("txsuite.toml"))
     build.add_argument("--run-dir", type=Path)
     build.add_argument("--dry-run", action="store_true")
@@ -667,6 +698,64 @@ def run(argv: list[str] | None = None) -> int:
                         "kind": "directory",
                         "label": "DESeq2 results",
                         "path": str((args.outdir / "deseq2").resolve()),
+                    },
+                ],
+            )
+            return 0
+        if args.command == "workflow" and args.workflow_command == "single-cell-cellranger":
+            config = load_config(args.config)
+            command = cellranger_workflow_command(
+                config,
+                genome_name=args.genome_name,
+                fastqs=args.fastqs,
+                sample=args.sample,
+                outdir=args.outdir,
+                fasta=args.fasta,
+                gtf=args.gtf,
+                reference=args.reference,
+                cellranger_image=args.cellranger_image,
+                threads=args.threads,
+                memory_gb=args.memory_gb,
+                create_bam=not args.no_bam,
+                nextflow_config=args.nextflow_config,
+                resume=args.resume,
+            )
+            if args.dry_run:
+                print(format_command(command))
+                return 0
+            args.outdir.mkdir(parents=True, exist_ok=True)
+            run_command(
+                command,
+                run_dir=args.run_dir or args.outdir / ".txsuite",
+                task="workflow.single-cell-cellranger",
+                backend="Nextflow DSL2 + user-installed Cell Ranger",
+                inputs={
+                    "genome_name": args.genome_name,
+                    "fastqs": str(args.fastqs.resolve()),
+                    "sample": args.sample,
+                    "fasta": str(args.fasta.resolve()) if args.fasta else None,
+                    "gtf": str(args.gtf.resolve()) if args.gtf else None,
+                    "reference": str(args.reference.resolve()) if args.reference else None,
+                },
+                outputs={"outdir": str(args.outdir.resolve())},
+                artifacts=[
+                    {
+                        "kind": "directory",
+                        "label": "Cell Ranger counts",
+                        "path": str((args.outdir / "counts" / args.sample / "outs").resolve()),
+                    },
+                    {
+                        "kind": "directory",
+                        "label": "filtered feature-barcode matrix",
+                        "path": str(
+                            (
+                                args.outdir
+                                / "counts"
+                                / args.sample
+                                / "outs"
+                                / "filtered_feature_bc_matrix"
+                            ).resolve()
+                        ),
                     },
                 ],
             )
@@ -1102,6 +1191,30 @@ def run(argv: list[str] | None = None) -> int:
                 mutable |= not locked
             return int(mutable)
         if args.command == "env" and args.env_command == "build":
+            if args.environment == "cellranger":
+                if not args.tag:
+                    raise TxSuiteError(
+                        "--tag is required for 'cellranger'; TxSuite has no default "
+                        "image because it never publishes this licensed software"
+                    )
+                if not args.source_tarball:
+                    raise TxSuiteError(
+                        "--source-tarball is required for 'cellranger': point it at "
+                        "your own EULA-accepted cellranger-*.tar.gz download"
+                    )
+                tag = args.tag
+                if args.dry_run:
+                    print(
+                        f"docker build --tag {shlex.quote(tag)} "
+                        f"--build-arg CELLRANGER_TARBALL={shlex.quote(args.source_tarball.name)} "
+                        "<bundled-cellranger-context>"
+                    )
+                    return 0
+                run_dir = args.run_dir or Path(".txsuite/build-cellranger")
+                build_cellranger_image(
+                    tag, source_tarball=args.source_tarball, run_dir=run_dir
+                )
+                return 0
             config = load_config(args.config)
             key = args.environment.replace("-", "_")
             tag = args.tag or config["images"][key]

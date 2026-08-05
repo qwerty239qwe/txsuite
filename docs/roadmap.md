@@ -72,7 +72,7 @@ Secrets and machine-specific paths do not belong in committed project config.
 | Bulk RNA-seq | Quantification | Salmon | RSEM, featureCounts | nf-core/rnaseq |
 | Single-cell | QC | FastQC + pipeline metrics | CellBender later | nf-core/scrnaseq |
 | Single-cell | Alignment/counting | Simpleaf | STARsolo, Kallisto/BUS | nf-core/scrnaseq |
-| Single-cell 10x | Alignment/counting | user-installed Cell Ranger | Simpleaf | external licensed backend |
+| Single-cell 10x | Alignment/counting | user-installed Cell Ranger (nf-core aligner or native mkref+count DAG) | Simpleaf | external licensed backend |
 | Spatial Visium | QC/alignment/counting | user-installed Space Ranger | Spacemake later | external licensed backend |
 | Other sequencing-based spatial | Processing | Spacemake | assay-specific pipeline | experimental, phase 3 |
 
@@ -126,7 +126,9 @@ Deliver:
 
 - `txsuite workflow single-cell` launching pinned `nf-core/scrnaseq`;
 - Simpleaf as the open default and STARsolo as an alternative;
-- optional discovery of a user-installed Cell Ranger;
+- optional discovery of a user-installed Cell Ranger, either as the
+  nf-core/scrnaseq `--aligner cellranger` passthrough or as a standalone
+  `txsuite workflow single-cell-cellranger` native `mkref`+`count` Nextflow DAG;
 - `txsuite env build single-cell-python` for the owned Scanpy image;
 - AnnData import plus Scanpy QC, normalization, PCA, neighbors, Leiden, and UMAP;
 - pseudobulk differential expression through the bulk DESeq2 backend.
@@ -171,10 +173,14 @@ Deliver only after the three modality smoke tests pass:
 
 ### Phase 5 — native orchestration
 
-Implementation status: the single-cell pseudobulk-to-DESeq2 path is packaged as
-a resumable Nextflow DSL2 workflow with local, Docker, and Apptainer profiles.
-Its stub DAG runs in CI. The pinned nf-core raw-data launchers and licensed
-Space Ranger backend remain independent upstream integrations.
+Implementation status: the single-cell pseudobulk-to-DESeq2 path and a
+Cell Ranger `mkref`+`count` DAG are packaged as resumable Nextflow DSL2
+workflows with local, Docker, and Apptainer profiles. Both stub DAGs run in
+CI. TxSuite builds no Cell Ranger image itself; `env build cellranger`
+packages only the install recipe around a tarball the caller already
+downloaded under their own 10x Genomics license. The pinned nf-core raw-data
+launchers and licensed Space Ranger backend remain independent upstream
+integrations.
 
 Deliver:
 

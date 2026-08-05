@@ -72,8 +72,16 @@ TOOLS = (
     ),
     Tool(
         "single-cell",
+        "alignment",
+        "Cell Ranger (nf-core/scrnaseq aligner)",
+        "cellranger",
+        "user install",
+        "external",
+    ),
+    Tool(
+        "single-cell",
         "workflow",
-        "Cell Ranger",
+        "Cell Ranger mkref+count (native Nextflow DAG)",
         "cellranger",
         "user install",
         "external",
