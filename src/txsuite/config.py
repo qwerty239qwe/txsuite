@@ -6,13 +6,12 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_CONFIG: dict[str, Any] = {
     "execution": {"profile": "docker"},
     "images": {
-        "bulk_r": "txsuite/bulk-r:0.1.0",
-        "single_cell_python": "txsuite/single-cell-python:0.1.0",
-        "spatial_python": "txsuite/spatial-python:0.1.0",
+        "bulk_r": "txsuite/bulk-r:0.2.0",
+        "single_cell_python": "txsuite/single-cell-python:0.2.0",
+        "spatial_python": "txsuite/spatial-python:0.2.0",
     },
     "pipelines": {
         "bulk": {"name": "nf-core/rnaseq", "release": "3.26.0"},
@@ -25,9 +24,9 @@ DEFAULT_TOML = """[execution]
 profile = "docker"
 
 [images]
-bulk_r = "txsuite/bulk-r:0.1.0"
-single_cell_python = "txsuite/single-cell-python:0.1.0"
-spatial_python = "txsuite/spatial-python:0.1.0"
+bulk_r = "txsuite/bulk-r:0.2.0"
+single_cell_python = "txsuite/single-cell-python:0.2.0"
+spatial_python = "txsuite/spatial-python:0.2.0"
 
 [pipelines.bulk]
 name = "nf-core/rnaseq"

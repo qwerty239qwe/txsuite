@@ -4,4 +4,5 @@ RUN R -e 'BiocManager::install(c("DESeq2", "edgeR", "limma", "clusterProfiler"),
     && R -e 'stopifnot(all(vapply(c("DESeq2", "edgeR", "limma", "clusterProfiler"), requireNamespace, quietly = TRUE, FUN.VALUE = logical(1))))'
 
 COPY deseq2.R alternative_de.R enrichment.R /opt/txsuite/
+WORKDIR /work
 CMD ["Rscript", "/opt/txsuite/deseq2.R"]

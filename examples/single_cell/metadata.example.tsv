@@ -1,0 +1,9 @@
+barcode	sample	condition	batch	cell_type
+cell-01	control-1	control	batch-1	T_cell
+cell-02	control-2	control	batch-2	T_cell
+cell-03	treated-1	treated	batch-1	T_cell
+cell-04	treated-2	treated	batch-2	T_cell
+cell-05	control-1	control	batch-1	NK_cell
+cell-06	treated-1	treated	batch-1	NK_cell
+cell-07	control-2	control	batch-2	B_cell
+cell-08	treated-2	treated	batch-2	B_cell

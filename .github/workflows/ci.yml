@@ -63,6 +63,7 @@ jobs:
           -stub-run -profile local
           -work-dir /tmp/txsuite-nextflow-work
           --input /tmp/txsuite-stub.h5ad
+          --manifest "$PWD/examples/single_cell/comparisons.example.tsv"
           --outdir /tmp/txsuite-nextflow-results
           --single_cell_image txsuite/single-cell-python:stub
           --bulk_image txsuite/bulk-r:stub
@@ -77,3 +78,70 @@ jobs:
           --fastqs /tmp/txsuite-cellranger-fastqs
           --sample sample1
           --outdir /tmp/txsuite-cellranger-results
+
+  single-cell-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: docker build -t txsuite-single-cell:test src/txsuite/resources/single_cell_python
+      - run: mkdir -p /tmp/txsuite-single-cell/analysis /tmp/txsuite-single-cell/pca /tmp/txsuite-single-cell/pseudobulk
+      - run: >-
+          docker run --rm
+          -v "$PWD/examples/single_cell/filtered_feature_bc_matrix:/input/data:ro"
+          -v "$PWD/examples/single_cell/metadata.example.tsv:/input/metadata.tsv:ro"
+          -v "/tmp/txsuite-single-cell/analysis:/output"
+          txsuite-single-cell:test
+          python /opt/txsuite/single_cell.py analyze /input/data /output
+          --metadata /input/metadata.tsv
+          --batch-column batch
+          --integration harmony
+          --min-genes 1 --min-cells 1 --max-mito-pct 100 --resolution 1
+          --target-sum 5000 --n-hvg 12 --n-pcs 5 --n-neighbors 4
+          --umap-min-dist 0.2 --marker-method t-test
+          --doublets score --doublet-threshold 1 --top-markers 10
+      - run: >-
+          docker run --rm
+          -v "/tmp/txsuite-single-cell/analysis/analysis.h5ad:/input/data.h5ad:ro"
+          -v "/tmp/txsuite-single-cell/pseudobulk:/output"
+          txsuite-single-cell:test
+          python /opt/txsuite/single_cell.py pseudobulk /input/data.h5ad /output
+          --sample-column sample --design condition
+          --group-column cell_type --group-value T_cell
+          --covariate batch --reference control --test treated
+      - run: >-
+          docker run --rm
+          -v "/tmp/txsuite-single-cell/analysis/analysis.h5ad:/input/data.h5ad:ro"
+          -v "/tmp/txsuite-single-cell/pca:/output"
+          txsuite-single-cell:test
+          python /opt/txsuite/single_cell.py analyze /input/data.h5ad /output
+          --counts-layer counts --stop-after pca
+          --min-genes 1 --min-cells 1 --max-mito-pct 100 --n-hvg 12 --n-pcs 5
+      - run: >-
+          docker run --rm
+          -v "/tmp/txsuite-single-cell/analysis/analysis.h5ad:/input/data.h5ad:ro"
+          txsuite-single-cell:test
+          python -c "import numpy as np, scanpy as sc;
+          a = sc.read_h5ad('/input/data.h5ad');
+          assert a.obsm['X_pca'].shape == a.obsm['X_pca_harmony'].shape;
+          assert np.isfinite(a.obsm['X_pca_harmony']).all();
+          assert a.uns['neighbors']['params']['use_rep'] == 'X_pca_harmony'"
+      - run: >-
+          docker run --rm
+          -v "/tmp/txsuite-single-cell/pca/analysis.h5ad:/input/data.h5ad:ro"
+          txsuite-single-cell:test
+          python -c "import numpy as np, scanpy as sc;
+          a = sc.read_h5ad('/input/data.h5ad'); x = a.layers['counts'];
+          v = x.data if hasattr(x, 'data') else np.asarray(x);
+          assert np.all(v >= 0) and np.allclose(v, np.rint(v));
+          assert 'X_pca' in a.obsm and 'X_umap' not in a.obsm and 'leiden' not in a.obs"
+      - run: |
+          test -s /tmp/txsuite-single-cell/analysis/analysis.h5ad
+          test "$(wc -l < /tmp/txsuite-single-cell/analysis/marker-genes.tsv)" -gt 1
+          grep -q '"batch_column": "batch"' /tmp/txsuite-single-cell/analysis/summary.json
+          grep -q '"integration": "harmony"' /tmp/txsuite-single-cell/analysis/summary.json
+          grep -q doublet_score /tmp/txsuite-single-cell/analysis/cell-qc.tsv
+          grep -q '"counts_source": "layer:counts"' /tmp/txsuite-single-cell/pca/summary.json
+          test "$(wc -l < /tmp/txsuite-single-cell/pca/clusters.tsv)" -eq 1
+          test "$(wc -l < /tmp/txsuite-single-cell/pca/marker-genes.tsv)" -eq 1
+          test "$(wc -l < /tmp/txsuite-single-cell/pseudobulk/pseudobulk-metadata.tsv)" -eq 5
+          awk -F '\t' 'NR > 1 { for (i = 2; i <= NF; i++) if ($i !~ /^[0-9]+$/) exit 1 }' /tmp/txsuite-single-cell/pseudobulk/pseudobulk-counts.tsv

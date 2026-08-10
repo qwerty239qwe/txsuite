@@ -1,0 +1,3 @@
+comparison	group_column	group_value	design	reference	test	method	covariates	padj	lfc	top_genes
+t_cells	cell_type	T_cell	condition	control	treated	deseq2	batch	0.05	1	50
+all_cells			condition	control	treated	limma	batch	0.05	1	50

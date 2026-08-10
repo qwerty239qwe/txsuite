@@ -10,7 +10,6 @@ from typing import Any
 
 from txsuite.runtime import TxSuiteError, run_command
 
-
 REQUIRED_COLUMNS = {"sample", "fastq_1", "fastq_2", "strandedness"}
 STRANDEDNESS = {"auto", "forward", "reverse", "unstranded"}
 DE_METHODS = ("deseq2", "edger", "limma")
@@ -87,10 +86,12 @@ def deseq2_command(
     image: str,
     counts: Path,
     metadata: Path,
-    design: str,
-    reference: str,
-    test: str,
     outdir: Path,
+    design: str | None = None,
+    reference: str | None = None,
+    test: str | None = None,
+    formula: str | None = None,
+    coefficient: str | None = None,
     covariates: tuple[str, ...] = (),
     padj: float = 0.05,
     lfc: float = 1.0,
@@ -101,10 +102,27 @@ def deseq2_command(
         for label, path in (("Counts", counts), ("Metadata", metadata)):
             if not path.is_file():
                 raise TxSuiteError(f"{label} file does not exist: {path}")
-    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", design):
-        raise TxSuiteError("Design must be a simple metadata column name")
-    if not reference or not test or reference == test:
-        raise TxSuiteError("Reference and test levels must be non-empty and different")
+    advanced = formula is not None or coefficient is not None
+    if advanced:
+        if not formula or not coefficient:
+            raise TxSuiteError("Formula and coefficient must be used together")
+        if any(value is not None for value in (design, reference, test)) or covariates:
+            raise TxSuiteError(
+                "Formula mode cannot be combined with design, contrast levels, or covariates"
+            )
+        if not re.fullmatch(r"~[A-Za-z0-9_.+*: ]+", formula) or not re.search(
+            r"[A-Za-z]", formula
+        ):
+            raise TxSuiteError("Formula supports column names and +, *, :, 0, or 1")
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:]*", coefficient):
+            raise TxSuiteError("Coefficient must be a simple model coefficient name")
+    else:
+        if design is None or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", design):
+            raise TxSuiteError("Design must be a simple metadata column name")
+        if not reference or not test or reference == test:
+            raise TxSuiteError(
+                "Reference and test levels must be non-empty and different"
+            )
     if any(
         not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", covariate)
         for covariate in covariates
@@ -140,14 +158,16 @@ def deseq2_command(
         "/opt/txsuite/deseq2.R",
         "/input/counts.tsv",
         "/input/metadata.tsv",
-        design,
-        reference,
-        test,
+        design or "",
+        reference or "",
+        test or "",
         "/output",
         str(padj),
         str(lfc),
         str(top_genes),
         ",".join(covariates),
+        formula or "",
+        coefficient or "",
     ]
 
 
@@ -157,10 +177,12 @@ def differential_expression_command(
     image: str,
     counts: Path,
     metadata: Path,
-    design: str,
-    reference: str,
-    test: str,
     outdir: Path,
+    design: str | None = None,
+    reference: str | None = None,
+    test: str | None = None,
+    formula: str | None = None,
+    coefficient: str | None = None,
     covariates: tuple[str, ...] = (),
     padj: float = 0.05,
     lfc: float = 1.0,
@@ -176,6 +198,8 @@ def differential_expression_command(
         design=design,
         reference=reference,
         test=test,
+        formula=formula,
+        coefficient=coefficient,
         outdir=outdir,
         covariates=covariates,
         padj=padj,

@@ -1,10 +1,10 @@
 suppressPackageStartupMessages(library(DESeq2))
 
 args <- commandArgs(trailingOnly = TRUE)
-if (!(length(args) %in% c(6, 10))) {
+if (!(length(args) %in% c(6, 10, 12))) {
     stop(paste(
         "usage: deseq2.R COUNTS METADATA DESIGN REFERENCE TEST OUTDIR",
-        "[PADJ LFC TOP_GENES COVARIATES]"
+        "[PADJ LFC TOP_GENES COVARIATES [FORMULA COEFFICIENT]]"
     ))
 }
 
@@ -14,16 +14,32 @@ design <- args[[3]]
 reference <- args[[4]]
 test <- args[[5]]
 outdir <- args[[6]]
-padj_threshold <- if (length(args) == 10) as.numeric(args[[7]]) else 0.05
-lfc_threshold <- if (length(args) == 10) as.numeric(args[[8]]) else 1
-top_genes <- if (length(args) == 10) as.integer(args[[9]]) else 50L
-covariates <- if (length(args) == 10 && nzchar(args[[10]])) {
+padj_threshold <- if (length(args) >= 10) as.numeric(args[[7]]) else 0.05
+lfc_threshold <- if (length(args) >= 10) as.numeric(args[[8]]) else 1
+top_genes <- if (length(args) >= 10) as.integer(args[[9]]) else 50L
+covariates <- if (length(args) >= 10 && nzchar(args[[10]])) {
     strsplit(args[[10]], ",", fixed = TRUE)[[1]]
 } else {
     character()
 }
+formula_text <- if (length(args) == 12) args[[11]] else ""
+coefficient_name <- if (length(args) == 12) args[[12]] else ""
+advanced <- nzchar(formula_text) || nzchar(coefficient_name)
 
-if (!grepl("^[A-Za-z][A-Za-z0-9_.]*$", design)) {
+if (advanced && (!nzchar(formula_text) || !nzchar(coefficient_name))) {
+    stop("formula and coefficient must be provided together")
+}
+if (advanced && (nzchar(design) || nzchar(reference) || nzchar(test) || length(covariates))) {
+    stop("formula mode cannot be combined with design, reference, test, or covariates")
+}
+if (advanced && (!grepl("^~[A-Za-z0-9_.+*: ]+$", formula_text) ||
+    !grepl("[A-Za-z]", formula_text))) {
+    stop("formula may contain only metadata names and +, *, or : operators")
+}
+if (advanced && !grepl("^[A-Za-z][A-Za-z0-9_.:]*$", coefficient_name)) {
+    stop("coefficient must be a model coefficient name")
+}
+if (!advanced && !grepl("^[A-Za-z][A-Za-z0-9_.]*$", design)) {
     stop("design must be a simple metadata column name")
 }
 if (any(!grepl("^[A-Za-z][A-Za-z0-9_.]*$", covariates))) {
@@ -77,7 +93,8 @@ if (length(missing_samples)) {
     stop(paste("metadata is missing samples:", paste(missing_samples, collapse = ", ")))
 }
 metadata <- metadata[colnames(count_matrix), , drop = FALSE]
-model_columns <- c(covariates, design)
+model_formula <- if (advanced) as.formula(formula_text) else reformulate(c(covariates, design))
+model_columns <- all.vars(model_formula)
 missing_columns <- setdiff(model_columns, colnames(metadata))
 if (length(missing_columns)) {
     stop(paste("metadata is missing model columns:", paste(missing_columns, collapse = ", ")))
@@ -87,24 +104,41 @@ for (column in model_columns) {
         metadata[[column]] <- factor(metadata[[column]])
     }
 }
-metadata[[design]] <- factor(metadata[[design]])
-levels_present <- levels(metadata[[design]])
-if (!(reference %in% levels_present) || !(test %in% levels_present)) {
-    stop("reference and test must both occur in the design column")
+if (anyNA(metadata[, model_columns, drop = FALSE])) {
+    stop("model columns cannot contain missing values")
 }
-metadata[[design]] <- relevel(metadata[[design]], ref = reference)
+if (!advanced) {
+    metadata[[design]] <- factor(metadata[[design]])
+    levels_present <- levels(metadata[[design]])
+    if (!(reference %in% levels_present) || !(test %in% levels_present)) {
+        stop("reference and test must both occur in the design column")
+    }
+    metadata[[design]] <- relevel(metadata[[design]], ref = reference)
+}
+plot_group <- factor(metadata[[model_columns[[1]]]])
+contrast_label <- if (advanced) coefficient_name else paste(test, "vs", reference)
 
 dds <- DESeqDataSetFromMatrix(
     countData = count_matrix,
     colData = metadata,
-    design = reformulate(model_columns)
+    design = model_formula
 )
 dds <- DESeq(dds)
-de_result <- results(
-    dds,
-    contrast = c(design, test, reference),
-    alpha = padj_threshold
-)
+if (advanced) {
+    if (!(coefficient_name %in% resultsNames(dds))) {
+        stop(paste(
+            "coefficient not found; available coefficients:",
+            paste(resultsNames(dds), collapse = ", ")
+        ))
+    }
+    de_result <- results(dds, name = coefficient_name, alpha = padj_threshold)
+} else {
+    de_result <- results(
+        dds,
+        contrast = c(design, test, reference),
+        alpha = padj_threshold
+    )
+}
 result <- data.frame(
     gene_id = rownames(de_result),
     as.data.frame(de_result),
@@ -203,8 +237,7 @@ write.table(
 )
 
 pdf(file.path(outdir, "pca.pdf"), width = 7, height = 6)
-groups <- metadata[rownames(pca_scores), design]
-group_factor <- factor(groups)
+group_factor <- plot_group[match(rownames(pca_scores), rownames(metadata))]
 variance <- 100 * pca$sdev^2 / sum(pca$sdev^2)
 if (length(variance) < 2) {
     variance <- c(variance, 0)
@@ -216,7 +249,7 @@ plot(
     pch = 19,
     xlab = sprintf("PC1 (%.1f%%)", variance[[1]]),
     ylab = sprintf("PC2 (%.1f%%)", variance[[2]]),
-    main = paste(test, "vs", reference)
+    main = contrast_label
 )
 text(pca_scores[, 1], pca_scores[, 2], labels = rownames(pca_scores), pos = 3, cex = 0.7)
 legend("topright", legend = levels(group_factor), col = seq_along(levels(group_factor)), pch = 19)
@@ -227,7 +260,7 @@ heatmap(sample_correlation, scale = "none", symm = TRUE, margins = c(9, 9))
 dev.off()
 
 pdf(file.path(outdir, "ma.pdf"), width = 7, height = 6)
-plotMA(de_result, alpha = padj_threshold, main = paste(test, "vs", reference))
+plotMA(de_result, alpha = padj_threshold, main = contrast_label)
 abline(h = c(-lfc_threshold, lfc_threshold), col = "steelblue", lty = 2)
 dev.off()
 
@@ -244,7 +277,7 @@ plot(
     cex = 0.6,
     xlab = "log2 fold change",
     ylab = "-log10 adjusted p-value",
-    main = paste(test, "vs", reference)
+    main = contrast_label
 )
 abline(v = c(-lfc_threshold, lfc_threshold), h = -log10(padj_threshold), lty = 2)
 label_rows <- head(order(result$padj, na.last = NA), 10L)

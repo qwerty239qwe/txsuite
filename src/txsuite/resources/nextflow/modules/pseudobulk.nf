@@ -1,27 +1,32 @@
 process PSEUDOBULK {
-    tag 'pseudobulk'
+    tag "${meta.id}"
     label 'single_cell'
-    container params.single_cell_image
-    publishDir "${params.outdir}/pseudobulk", mode: 'copy'
 
     input:
-    path h5ad
+    tuple val(meta), path(h5ad)
 
     output:
-    path 'pseudobulk-counts.tsv', emit: counts
-    path 'pseudobulk-metadata.tsv', emit: metadata
+    tuple val(meta), path("pseudobulk/${meta.id}"), emit: data
 
     script:
+    def outputDir = "pseudobulk/${meta.id}"
+    def groupArgs = meta.group_column ? "--group-column ${meta.group_column} --group-value ${meta.group_value}" : ''
+    def covariateArgs = meta.covariates ? meta.covariates.split(',').collect { "--covariate ${it}" }.join(' ') : ''
     """
+    mkdir -p "${outputDir}"
     python /opt/txsuite/single_cell.py pseudobulk \
-        "${h5ad}" . \
-        --sample-column ${params.sample_column} \
-        --design ${params.design}
+        "${h5ad}" "${outputDir}" \
+        --sample-column ${meta.sample_column} \
+        --design ${meta.design} \
+        --reference ${meta.reference} \
+        --test ${meta.test} \
+        ${groupArgs} ${covariateArgs}
     """
 
     stub:
     """
-    printf 'gene_id\tsample_A\tsample_B\nGENE1\t10\t20\n' > pseudobulk-counts.tsv
-    printf 'sample\t${params.design}\nsample_A\t${params.reference}\nsample_B\t${params.test}\n' > pseudobulk-metadata.tsv
+    mkdir -p "pseudobulk/${meta.id}"
+    printf 'gene_id\tsample_A\tsample_B\nGENE1\t10\t20\n' > "pseudobulk/${meta.id}/pseudobulk-counts.tsv"
+    printf 'sample\t${meta.design}\nsample_A\t${meta.reference}\nsample_B\t${meta.test}\n' > "pseudobulk/${meta.id}/pseudobulk-metadata.tsv"
     """
 }

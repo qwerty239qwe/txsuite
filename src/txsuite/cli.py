@@ -12,11 +12,15 @@ from txsuite.bulk import (
     deseq2_command,
     differential_expression_command,
     enrichment_command,
+)
+from txsuite.bulk import (
     validate_samplesheet as validate_bulk_samplesheet,
+)
+from txsuite.bulk import (
     workflow_command as bulk_workflow_command,
 )
 from txsuite.catalog import select_tools
-from txsuite.config import ConfigError, DEFAULT_TOML, load_config
+from txsuite.config import DEFAULT_TOML, ConfigError, load_config
 from txsuite.hardening import cache_reference, image_is_locked
 from txsuite.project import (
     ProjectExecutor,
@@ -38,12 +42,20 @@ from txsuite.single_cell import (
     build_single_cell_image,
     cellranger_workflow_command,
     pseudobulk_command,
+    pseudobulk_manifest_workflow_command,
     pseudobulk_workflow_command,
+    run_pseudobulk_manifest,
+)
+from txsuite.single_cell import (
     validate_samplesheet as validate_single_cell_samplesheet,
+)
+from txsuite.single_cell import (
     workflow_command as single_cell_workflow_command,
 )
 from txsuite.spatial import (
     analysis_command as spatial_analysis_command,
+)
+from txsuite.spatial import (
     build_spatial_image,
     spacemake_command,
     spaceranger_command,
@@ -166,6 +178,9 @@ def _parser() -> argparse.ArgumentParser:
     pseudobulk_workflow.add_argument("--input", type=Path, required=True)
     pseudobulk_workflow.add_argument("--sample-column", required=True)
     pseudobulk_workflow.add_argument("--design", required=True)
+    pseudobulk_workflow.add_argument("--group-column")
+    pseudobulk_workflow.add_argument("--group-value")
+    pseudobulk_workflow.add_argument("--covariate", action="append", default=[])
     pseudobulk_workflow.add_argument("--reference", required=True)
     pseudobulk_workflow.add_argument("--test", required=True)
     pseudobulk_workflow.add_argument("--padj", type=float, default=0.05)
@@ -238,10 +253,12 @@ def _parser() -> argparse.ArgumentParser:
     de.add_argument("--method", choices=("deseq2", "edger", "limma"), default="deseq2")
     de.add_argument("--counts", type=Path, required=True)
     de.add_argument("--metadata", type=Path, required=True)
-    de.add_argument("--design", required=True)
-    de.add_argument("--reference", required=True)
-    de.add_argument("--test", required=True)
+    de.add_argument("--design")
+    de.add_argument("--reference")
+    de.add_argument("--test")
     de.add_argument("--covariate", action="append", default=[])
+    de.add_argument("--formula")
+    de.add_argument("--coefficient")
     de.add_argument("--padj", type=float, default=0.05)
     de.add_argument("--lfc", type=float, default=1.0)
     de.add_argument("--top-genes", type=int, default=50)
@@ -287,6 +304,34 @@ def _parser() -> argparse.ArgumentParser:
     analyze.add_argument("--min-cells", type=int, default=3)
     analyze.add_argument("--max-mito-pct", type=float, default=20)
     analyze.add_argument("--resolution", type=float, default=1)
+    analyze.add_argument("--metadata", type=Path)
+    analyze.add_argument("--barcode-column", default="barcode")
+    analyze.add_argument("--batch-column")
+    analyze.add_argument("--integration", choices=("none", "harmony"), default="none")
+    analyze.add_argument("--counts-layer", default="counts")
+    analyze.add_argument("--target-sum", type=float, default=10_000)
+    analyze.add_argument("--n-hvg", type=int, default=2_000)
+    analyze.add_argument(
+        "--hvg-flavor", choices=("seurat", "cell_ranger"), default="seurat"
+    )
+    analyze.add_argument("--n-pcs", type=int, default=50)
+    analyze.add_argument("--n-neighbors", type=int, default=15)
+    analyze.add_argument("--umap-min-dist", type=float, default=0.5)
+    analyze.add_argument(
+        "--marker-method", choices=("wilcoxon", "t-test"), default="wilcoxon"
+    )
+    analyze.add_argument(
+        "--stop-after", choices=("qc", "pca", "clusters", "all"), default="all"
+    )
+    analyze.add_argument("--skip-umap", action="store_true")
+    analyze.add_argument("--skip-markers", action="store_true")
+    analyze.add_argument(
+        "--doublets", choices=("off", "score", "filter"), default="off"
+    )
+    analyze.add_argument("--doublet-batch-column")
+    analyze.add_argument("--expected-doublet-rate", type=float, default=0.05)
+    analyze.add_argument("--doublet-threshold", type=float)
+    analyze.add_argument("--top-markers", type=int, default=100)
     analyze.add_argument("--image")
     analyze.add_argument("--config", type=Path, default=Path("txsuite.toml"))
     analyze.add_argument("--run-dir", type=Path)
@@ -298,6 +343,9 @@ def _parser() -> argparse.ArgumentParser:
     pseudobulk.add_argument("--input", type=Path, required=True)
     pseudobulk.add_argument("--sample-column", required=True)
     pseudobulk.add_argument("--design", required=True)
+    pseudobulk.add_argument("--group-column")
+    pseudobulk.add_argument("--group-value")
+    pseudobulk.add_argument("--covariate", action="append", default=[])
     pseudobulk.add_argument("--reference", required=True)
     pseudobulk.add_argument("--test", required=True)
     pseudobulk.add_argument("--outdir", type=Path, required=True)
@@ -306,6 +354,25 @@ def _parser() -> argparse.ArgumentParser:
     pseudobulk.add_argument("--config", type=Path, default=Path("txsuite.toml"))
     pseudobulk.add_argument("--run-dir", type=Path)
     pseudobulk.add_argument("--dry-run", action="store_true")
+
+    pseudobulk_batch = single_cell_commands.add_parser(
+        "pseudobulk-batch",
+        help="run groups and contrasts from a comparison manifest",
+    )
+    pseudobulk_batch.add_argument("--input", type=Path, required=True)
+    pseudobulk_batch.add_argument("--sample-column", required=True)
+    pseudobulk_batch.add_argument("--manifest", type=Path, required=True)
+    pseudobulk_batch.add_argument("--outdir", type=Path, required=True)
+    pseudobulk_batch.add_argument("--image")
+    pseudobulk_batch.add_argument("--bulk-image")
+    pseudobulk_batch.add_argument("--config", type=Path, default=Path("txsuite.toml"))
+    pseudobulk_batch.add_argument("--nextflow-config", type=Path)
+    pseudobulk_batch.add_argument("--run-dir", type=Path)
+    pseudobulk_batch.add_argument(
+        "--direct", action="store_true", help="run each comparison directly with Docker"
+    )
+    pseudobulk_batch.add_argument("--resume", action="store_true")
+    pseudobulk_batch.add_argument("--dry-run", action="store_true")
 
     spatial = commands.add_parser("spatial", help="spatial transcriptomics analysis")
     spatial_commands = spatial.add_subparsers(dest="spatial_command", required=True)
@@ -338,6 +405,10 @@ def _parser() -> argparse.ArgumentParser:
 
     env = commands.add_parser("env", help="inspect execution environments")
     env_commands = env.add_subparsers(dest="env_command", required=True)
+    list_environments = env_commands.add_parser(
+        "list", help="list configured TxSuite-owned images"
+    )
+    list_environments.add_argument("--config", type=Path, default=Path("txsuite.toml"))
     doctor = env_commands.add_parser("doctor", help="check workflow prerequisites")
     doctor.add_argument("--config", type=Path, default=Path("txsuite.toml"))
     verify_images = env_commands.add_parser(
@@ -661,6 +732,9 @@ def run(argv: list[str] | None = None) -> int:
                 design=args.design,
                 reference=args.reference,
                 test=args.test,
+                group_column=args.group_column,
+                group_value=args.group_value,
+                covariates=tuple(args.covariate),
                 single_cell_image=args.image,
                 bulk_image=args.bulk_image,
                 padj=args.padj,
@@ -682,6 +756,8 @@ def run(argv: list[str] | None = None) -> int:
                     "h5ad": str(args.input.resolve()),
                     "sample_column": args.sample_column,
                     "design": args.design,
+                    "group": [args.group_column, args.group_value],
+                    "covariates": args.covariate,
                     "contrast": [args.test, args.reference],
                     "padj": args.padj,
                     "abs_log2fc": args.lfc,
@@ -842,6 +918,8 @@ def run(argv: list[str] | None = None) -> int:
                 design=args.design,
                 reference=args.reference,
                 test=args.test,
+                formula=args.formula,
+                coefficient=args.coefficient,
                 outdir=args.outdir,
                 covariates=tuple(args.covariate),
                 padj=args.padj,
@@ -867,8 +945,10 @@ def run(argv: list[str] | None = None) -> int:
                     "counts": str(args.counts.resolve()),
                     "metadata": str(args.metadata.resolve()),
                     "method": args.method,
-                    "design": args.design,
-                    "contrast": [args.test, args.reference],
+                    "design": args.design or args.formula,
+                    "contrast": (
+                        [args.test, args.reference] if args.design else args.coefficient
+                    ),
                     "covariates": args.covariate,
                     "padj": args.padj,
                     "abs_log2fc": args.lfc,
@@ -985,6 +1065,26 @@ def run(argv: list[str] | None = None) -> int:
                 min_cells=args.min_cells,
                 max_mito_pct=args.max_mito_pct,
                 resolution=args.resolution,
+                metadata=args.metadata,
+                barcode_column=args.barcode_column,
+                batch_column=args.batch_column,
+                integration=args.integration,
+                counts_layer=args.counts_layer,
+                target_sum=args.target_sum,
+                n_hvg=args.n_hvg,
+                hvg_flavor=args.hvg_flavor,
+                n_pcs=args.n_pcs,
+                n_neighbors=args.n_neighbors,
+                umap_min_dist=args.umap_min_dist,
+                marker_method=args.marker_method,
+                stop_after=args.stop_after,
+                skip_umap=args.skip_umap,
+                skip_markers=args.skip_markers,
+                doublets=args.doublets,
+                doublet_batch_column=args.doublet_batch_column,
+                expected_doublet_rate=args.expected_doublet_rate,
+                doublet_threshold=args.doublet_threshold,
+                top_markers=args.top_markers,
             )
             if args.dry_run:
                 print(format_command(command))
@@ -997,10 +1097,30 @@ def run(argv: list[str] | None = None) -> int:
                 backend="Scanpy",
                 inputs={
                     "data": str(args.input.resolve()),
+                    "metadata": str(args.metadata.resolve()) if args.metadata else None,
+                    "barcode_column": args.barcode_column,
+                    "batch_column": args.batch_column,
+                    "integration": args.integration,
+                    "counts_layer": args.counts_layer,
+                    "target_sum": args.target_sum,
+                    "n_hvg": args.n_hvg,
+                    "hvg_flavor": args.hvg_flavor,
+                    "n_pcs": args.n_pcs,
+                    "n_neighbors": args.n_neighbors,
+                    "umap_min_dist": args.umap_min_dist,
+                    "marker_method": args.marker_method,
+                    "stop_after": args.stop_after,
+                    "skip_umap": args.skip_umap,
+                    "skip_markers": args.skip_markers,
                     "min_genes": args.min_genes,
                     "min_cells": args.min_cells,
                     "max_mito_pct": args.max_mito_pct,
                     "resolution": args.resolution,
+                    "doublets": args.doublets,
+                    "doublet_batch_column": args.doublet_batch_column,
+                    "expected_doublet_rate": args.expected_doublet_rate,
+                    "doublet_threshold": args.doublet_threshold,
+                    "top_markers": args.top_markers,
                 },
                 outputs={"outdir": str(args.outdir.resolve())},
                 artifacts=[
@@ -1019,6 +1139,62 @@ def run(argv: list[str] | None = None) -> int:
                         "label": "Leiden clusters and UMAP",
                         "path": str((args.outdir / "clusters.tsv").resolve()),
                     },
+                    {
+                        "kind": "table",
+                        "label": "Leiden marker genes",
+                        "path": str((args.outdir / "marker-genes.tsv").resolve()),
+                    },
+                ],
+            )
+            return 0
+        if (
+            args.command == "single-cell"
+            and args.single_cell_command == "pseudobulk-batch"
+        ):
+            config = load_config(args.config)
+            if args.direct:
+                commands = run_pseudobulk_manifest(
+                    manifest=args.manifest,
+                    h5ad=args.input,
+                    outdir=args.outdir,
+                    sample_column=args.sample_column,
+                    single_cell_image=args.image or config["images"]["single_cell_python"],
+                    bulk_image=args.bulk_image or config["images"]["bulk_r"],
+                    resume=args.resume,
+                    dry_run=args.dry_run,
+                )
+                for command in commands:
+                    print(format_command(command))
+                return 0
+            command = pseudobulk_manifest_workflow_command(
+                config,
+                manifest=args.manifest,
+                h5ad=args.input,
+                outdir=args.outdir,
+                sample_column=args.sample_column,
+                single_cell_image=args.image,
+                bulk_image=args.bulk_image,
+                nextflow_config=args.nextflow_config,
+                resume=args.resume,
+            )
+            if args.dry_run:
+                print(format_command(command))
+                return 0
+            args.outdir.mkdir(parents=True, exist_ok=True)
+            run_command(
+                command,
+                run_dir=args.run_dir or args.outdir / ".txsuite",
+                task="single-cell.pseudobulk-batch",
+                backend="Nextflow DSL2",
+                inputs={
+                    "h5ad": str(args.input.resolve()),
+                    "manifest": str(args.manifest.resolve()),
+                    "sample_column": args.sample_column,
+                },
+                outputs={"outdir": str(args.outdir.resolve())},
+                artifacts=[
+                    {"kind": "table", "label": "comparison index", "path": str((args.outdir / "comparison-index.tsv").resolve())},
+                    {"kind": "table", "label": "combined DE results", "path": str((args.outdir / "combined-results.tsv").resolve())},
                 ],
             )
             return 0
@@ -1037,6 +1213,11 @@ def run(argv: list[str] | None = None) -> int:
                 outdir=args.outdir,
                 sample_column=args.sample_column,
                 design=args.design,
+                group_column=args.group_column,
+                group_value=args.group_value,
+                covariates=tuple(args.covariate),
+                reference=args.reference,
+                test=args.test,
             )
             if args.dry_run:
                 differential = deseq2_command(
@@ -1047,6 +1228,7 @@ def run(argv: list[str] | None = None) -> int:
                     reference=args.reference,
                     test=args.test,
                     outdir=args.outdir,
+                    covariates=tuple(args.covariate),
                     check_inputs=False,
                 )
                 print(format_command(aggregate))
@@ -1063,6 +1245,8 @@ def run(argv: list[str] | None = None) -> int:
                     "h5ad": str(args.input.resolve()),
                     "sample_column": args.sample_column,
                     "design": args.design,
+                    "group": [args.group_column, args.group_value],
+                    "covariates": args.covariate,
                 },
                 outputs={
                     "counts": str(counts.resolve()),
@@ -1089,6 +1273,7 @@ def run(argv: list[str] | None = None) -> int:
                 reference=args.reference,
                 test=args.test,
                 outdir=args.outdir,
+                covariates=tuple(args.covariate),
             )
             run_command(
                 differential,
@@ -1099,6 +1284,8 @@ def run(argv: list[str] | None = None) -> int:
                     "counts": str(counts.resolve()),
                     "metadata": str(metadata.resolve()),
                     "design": args.design,
+                    "group": [args.group_column, args.group_value],
+                    "covariates": args.covariate,
                     "contrast": [args.test, args.reference],
                 },
                 outputs={"outdir": str(args.outdir.resolve())},
@@ -1159,6 +1346,10 @@ def run(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "reference" and args.reference_command == "cache":
             print(cache_reference(args.source, args.sha256, args.name, args.root))
+            return 0
+        if args.command == "env" and args.env_command == "list":
+            for name, image in load_config(args.config)["images"].items():
+                print(f"{name.replace('_', '-')}\t{image}")
             return 0
         if args.command == "env" and args.env_command == "doctor":
             config = load_config(args.config)

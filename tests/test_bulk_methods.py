@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import tempfile
+import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
-import tempfile
-import unittest
 
 from txsuite.bulk import (
     deseq2_command,
@@ -48,7 +48,21 @@ class BulkMethodTests(unittest.TestCase):
                 top_genes=20,
             )
             self.assertIn("/opt/txsuite/deseq2.R", de)
-            self.assertEqual(de[-4:], ["0.01", "1.5", "20", "batch"])
+            self.assertEqual(de[-6:], ["0.01", "1.5", "20", "batch", "", ""])
+
+            advanced = differential_expression_command(
+                method="deseq2",
+                image="txsuite/bulk-r:test",
+                counts=counts,
+                metadata=metadata,
+                outdir=root / "advanced",
+                formula="~ batch + condition + batch:condition",
+                coefficient="batch2.conditiontreated",
+            )
+            self.assertEqual(
+                advanced[-2:],
+                ["~ batch + condition + batch:condition", "batch2.conditiontreated"],
+            )
 
             for method in ("edger", "limma"):
                 alternative = differential_expression_command(
@@ -86,6 +100,16 @@ class BulkMethodTests(unittest.TestCase):
                     test="treated",
                     outdir=root / "de",
                     covariates=("condition",),
+                )
+            with self.assertRaisesRegex(TxSuiteError, "cannot be combined"):
+                deseq2_command(
+                    image="txsuite/bulk-r:test",
+                    counts=counts,
+                    metadata=metadata,
+                    outdir=root / "de",
+                    design="condition",
+                    formula="~ condition",
+                    coefficient="conditiontreated",
                 )
 
             output = StringIO()
@@ -136,6 +160,28 @@ class BulkMethodTests(unittest.TestCase):
             self.assertEqual(status, 0)
             self.assertIn("alternative_de.R limma", output.getvalue())
 
+            output = StringIO()
+            with redirect_stdout(output):
+                status = run(
+                    [
+                        "bulk",
+                        "de",
+                        "--counts",
+                        str(counts),
+                        "--metadata",
+                        str(metadata),
+                        "--formula",
+                        "~ batch + condition",
+                        "--coefficient",
+                        "conditiontreated",
+                        "--outdir",
+                        str(root / "advanced"),
+                        "--dry-run",
+                    ]
+                )
+            self.assertEqual(status, 0)
+            self.assertIn("~ batch + condition", output.getvalue())
+
         resource_root = (
             Path(__file__).parents[1] / "src" / "txsuite" / "resources" / "bulk_r"
         )
@@ -154,6 +200,8 @@ class BulkMethodTests(unittest.TestCase):
         self.assertIn("GSEA(", enrichment)
         self.assertIn("glmQLFTest(", alternative)
         self.assertIn("voom(", alternative)
+        self.assertIn("resultsNames(dds)", deseq2)
+        self.assertIn("model.matrix(model_formula", alternative)
 
 
 if __name__ == "__main__":

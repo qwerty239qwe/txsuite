@@ -4,10 +4,10 @@ suppressPackageStartupMessages({
 })
 
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) != 11) {
+if (!(length(args) %in% c(11, 13))) {
     stop(paste(
         "usage: alternative_de.R METHOD COUNTS METADATA DESIGN REFERENCE TEST",
-        "OUTDIR PADJ LFC TOP_GENES COVARIATES"
+        "OUTDIR PADJ LFC TOP_GENES COVARIATES [FORMULA COEFFICIENT]"
     ))
 }
 
@@ -26,11 +26,27 @@ covariates <- if (nzchar(args[[11]])) {
 } else {
     character()
 }
+formula_text <- if (length(args) == 13) args[[12]] else ""
+coefficient_name <- if (length(args) == 13) args[[13]] else ""
+advanced <- nzchar(formula_text) || nzchar(coefficient_name)
 
 if (!(method %in% c("edger", "limma"))) {
     stop("method must be 'edger' or 'limma'")
 }
-if (!grepl("^[A-Za-z][A-Za-z0-9_.]*$", design)) {
+if (advanced && (!nzchar(formula_text) || !nzchar(coefficient_name))) {
+    stop("formula and coefficient must be provided together")
+}
+if (advanced && (nzchar(design) || nzchar(reference) || nzchar(test) || length(covariates))) {
+    stop("formula mode cannot be combined with design, reference, test, or covariates")
+}
+if (advanced && (!grepl("^~[A-Za-z0-9_.+*: ]+$", formula_text) ||
+    !grepl("[A-Za-z]", formula_text))) {
+    stop("formula may contain only metadata names and +, *, or : operators")
+}
+if (advanced && !grepl("^[A-Za-z][A-Za-z0-9_.:]*$", coefficient_name)) {
+    stop("coefficient must be a model coefficient name")
+}
+if (!advanced && !grepl("^[A-Za-z][A-Za-z0-9_.]*$", design)) {
     stop("design must be a simple metadata column name")
 }
 if (any(!grepl("^[A-Za-z][A-Za-z0-9_.]*$", covariates))) {
@@ -77,7 +93,8 @@ if (length(missing_samples)) {
     stop(paste("metadata is missing samples:", paste(missing_samples, collapse = ", ")))
 }
 metadata <- metadata[colnames(count_matrix), , drop = FALSE]
-model_columns <- c(covariates, design)
+model_formula <- if (advanced) as.formula(formula_text) else NULL
+model_columns <- if (advanced) all.vars(model_formula) else c(covariates, design)
 missing_columns <- setdiff(model_columns, colnames(metadata))
 if (length(missing_columns)) {
     stop(paste("metadata is missing model columns:", paste(missing_columns, collapse = ", ")))
@@ -86,24 +103,38 @@ if (anyNA(metadata[, model_columns, drop = FALSE])) {
     stop("model columns cannot contain missing values")
 }
 
-selected <- metadata[[design]] %in% c(reference, test)
-metadata <- droplevels(metadata[selected, , drop = FALSE])
-count_matrix <- count_matrix[, rownames(metadata), drop = FALSE]
-group <- factor(metadata[[design]], levels = c(reference, test))
-if (anyNA(group) || any(table(group) < 2)) {
-    stop("reference and test must each contain at least two samples")
-}
-for (column in covariates) {
+for (column in model_columns) {
     if (is.character(metadata[[column]])) {
         metadata[[column]] <- factor(metadata[[column]])
     }
 }
-metadata$.txsuite_test <- as.integer(group == test)
-model <- model.matrix(reformulate(c(covariates, ".txsuite_test")), metadata)
+if (advanced) {
+    model <- model.matrix(model_formula, metadata)
+    if (!(coefficient_name %in% colnames(model))) {
+        stop(paste(
+            "coefficient not found; available coefficients:",
+            paste(colnames(model), collapse = ", ")
+        ))
+    }
+    coefficient <- match(coefficient_name, colnames(model))
+    group <- factor(metadata[[model_columns[[1]]]])
+    contrast_label <- coefficient_name
+} else {
+    selected <- metadata[[design]] %in% c(reference, test)
+    metadata <- droplevels(metadata[selected, , drop = FALSE])
+    count_matrix <- count_matrix[, rownames(metadata), drop = FALSE]
+    group <- factor(metadata[[design]], levels = c(reference, test))
+    if (anyNA(group) || any(table(group) < 2)) {
+        stop("reference and test must each contain at least two samples")
+    }
+    metadata$.txsuite_test <- as.integer(group == test)
+    model <- model.matrix(reformulate(c(covariates, ".txsuite_test")), metadata)
+    coefficient <- match(".txsuite_test", colnames(model))
+    contrast_label <- paste(test, "vs", reference)
+}
 if (qr(model)$rank < ncol(model)) {
     stop("the design matrix is not full rank; check covariates and groups")
 }
-coefficient <- match(".txsuite_test", colnames(model))
 
 dge <- DGEList(counts = count_matrix)
 keep <- filterByExpr(dge, design = model)
@@ -186,7 +217,7 @@ sample_qc <- data.frame(
     library_size = colSums(count_matrix),
     normalization_factor = dge$samples$norm.factors,
     group = group,
-    metadata[, covariates, drop = FALSE],
+    metadata[, model_columns, drop = FALSE],
     check.names = FALSE,
     row.names = NULL
 )
@@ -199,8 +230,9 @@ write.table(
 )
 
 colors <- as.integer(group)
+palette <- grDevices::rainbow(max(1, nlevels(group)))
 pdf(file.path(outdir, "mds.pdf"), width = 7, height = 6)
-plotMDS(dge, labels = colnames(dge), col = colors, main = paste(test, "vs", reference))
+plotMDS(dge, labels = colnames(dge), col = colors, main = contrast_label)
 legend("topright", legend = levels(group), col = seq_along(levels(group)), pch = 1)
 dev.off()
 
@@ -212,7 +244,7 @@ plot(
     cex = 0.6,
     xlab = "log10 mean normalized CPM + 1",
     ylab = "log2 fold-change",
-    main = paste(test, "vs", reference)
+    main = contrast_label
 )
 abline(h = 0, col = "grey50")
 dev.off()
@@ -226,7 +258,7 @@ plot(
     cex = 0.6,
     xlab = "log2 fold-change",
     ylab = "-log10 p-value",
-    main = paste(test, "vs", reference)
+    main = contrast_label
 )
 dev.off()
 
@@ -237,7 +269,7 @@ if (length(ranked) >= 2) {
     heatmap(
         log_cpm[result$gene_id[ranked], , drop = FALSE],
         scale = "row",
-        ColSideColors = c("steelblue", "firebrick")[colors],
+        ColSideColors = palette[colors],
         margins = c(8, 8)
     )
 } else {
@@ -248,7 +280,7 @@ dev.off()
 
 summary <- data.frame(
     method = if (method == "limma") "limma-voom" else "edgeR quasi-likelihood",
-    contrast = paste(test, "vs", reference),
+    contrast = contrast_label,
     samples = ncol(count_matrix),
     genes_tested = nrow(result),
     significant_genes = nrow(significant),

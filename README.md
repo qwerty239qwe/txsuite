@@ -118,7 +118,19 @@ uv run txsuite bulk de \
   --reference control \
   --test treated \
   --outdir results/edger
+
+# Advanced models use an explicit R formula and one named coefficient.
+uv run txsuite bulk de \
+  --counts counts.tsv \
+  --metadata metadata.tsv \
+  --formula "~ batch + condition" \
+  --coefficient condition_treated_vs_control \
+  --outdir results/adjusted
 ```
+
+Formula mode is mutually exclusive with `--design`, `--reference`, `--test`,
+and `--covariate`. If a coefficient is misspelled, the backend reports the
+available names.
 
 All methods write complete and significant DE tables, normalized counts,
 library QC, an analysis summary, ordination, MA, volcano, and top-gene plots.
@@ -167,16 +179,38 @@ uv run txsuite env build single-cell-python
 
 uv run txsuite single-cell analyze \
   --input examples/single_cell/filtered_feature_bc_matrix \
+  --metadata examples/single_cell/metadata.example.tsv \
+  --batch-column batch \
+  --integration harmony \
   --outdir results/single-cell-smoke \
   --min-genes 1 \
   --min-cells 1 \
   --max-mito-pct 100 \
-  --resolution 0.5
+  --resolution 0.5 \
+  --n-hvg 2000 \
+  --n-pcs 30 \
+  --n-neighbors 15 \
+  --doublets score
 ```
 
 `analyze` accepts a 10x matrix directory, 10x H5 file, or H5AD and writes
-`analysis.h5ad`, `cell-qc.tsv`, `clusters.tsv`, a summary, and the standard
-TxSuite manifest. A tiny 10x-format smoke dataset is in `examples/single_cell/`.
+`analysis.h5ad`, `cell-qc.tsv`, `clusters.tsv`, `marker-genes.tsv`, a summary,
+and the standard TxSuite manifest. Optional metadata is a TSV whose unique
+`barcode` column exactly matches the input cells. Scrublet is opt-in with
+`--doublets score` or `--doublets filter`; cluster markers use Wilcoxon and are
+reported for clusters with at least two cells. They are descriptive rather than
+replicate-aware differential-expression results. `--batch-column` makes highly
+variable gene selection batch-aware. Add `--integration harmony` to build the
+neighbor graph, clusters, and UMAP from Harmony-corrected PCs; the original PCA,
+normalized expression, and raw counts remain unchanged. Harmony is opt-in
+because it can remove real biology when batch and condition are confounded. A
+tiny 10x-format smoke dataset and matching metadata are in `examples/single_cell/`.
+Normalization, HVG flavor/count, PCs, neighbors, UMAP distance, marker method,
+and the raw-count layer are explicit options. Use `--stop-after qc|pca|clusters`
+or `--skip-umap` / `--skip-markers` for partial runs; skipped tabular outputs
+remain as header-only files. Existing H5AD input is rebuilt from
+`--counts-layer` (default `counts`) so normalized expression is never treated
+as raw counts.
 
 For an H5AD whose `obs` contains sample and experimental-design columns, the
 native DSL2 workflow runs pseudobulk aggregation and DESeq2 as one resumable
@@ -187,6 +221,9 @@ uv run txsuite workflow pseudobulk-de \
   --input annotated.h5ad \
   --sample-column sample \
   --design condition \
+  --group-column cell_type \
+  --group-value T_cell \
+  --covariate batch \
   --reference control \
   --test treated \
   --outdir results/pseudobulk-de \
@@ -194,9 +231,36 @@ uv run txsuite workflow pseudobulk-de \
 ```
 
 The packaged workflow has `local`, `docker`, and `apptainer` profiles and
-accepts `--nextflow-config` for cluster settings. The original
+accepts `--nextflow-config` for cluster settings. Its reusable
+`PSEUDOBULK_DE` subworkflow passes comparison metadata through parameter-free
+modules; images, resources, failure policy, and publishing remain in
+`nextflow.config`. The original
 `txsuite single-cell pseudobulk-de` command remains available for running the
-same two container steps directly without Nextflow.
+same two container steps directly without Nextflow. Group column and value must
+be supplied together; one cell type or cluster is analyzed per run. Repeat
+`--covariate` for sample-level adjustment variables.
+
+Run many groups or contrasts from a tab-separated manifest with one comparison
+per row:
+
+```bash
+uv run txsuite single-cell pseudobulk-batch \
+  --input annotated.h5ad \
+  --sample-column sample \
+  --manifest examples/single_cell/comparisons.example.tsv \
+  --outdir results/pseudobulk-batch \
+  --resume
+```
+
+Batch mode uses the same Nextflow DAG by default. Add `--direct` to retain the
+sequential Docker runner when Nextflow is unavailable. Required manifest
+columns are `comparison`, `design`, `reference`, and `test`.
+Optional columns are `group_column`, `group_value`, `method`, comma-separated
+`covariates`, `padj`, `lfc`, and `top_genes`. Each comparison keeps its own
+outputs under `pseudobulk/<comparison>` and `de/<comparison>`. The workflow
+writes `comparison-index.tsv` and `combined-results.tsv` after all runnable
+comparisons finish. It continues after individual failures, records failed
+comparisons in the index, and exits nonzero when any failed.
 
 ### Cell Ranger
 
@@ -312,3 +376,6 @@ owned images to GHCR from version tags or a manual run.
 - [Run bundles and result provenance](docs/results-layout.md)
 - [Agent and automation workflows](docs/agent-workflows.md)
 - [Release checklist](docs/release.md)
+Owned images intentionally have no fixed `ENTRYPOINT`, so Docker, Nextflow, and
+Apptainer can supply an explicit command. Their default `CMD` only prints tool
+help, and `/work` is the shared working-directory contract.

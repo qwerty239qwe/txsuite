@@ -9,4 +9,5 @@ RUN python -m pip install --no-cache-dir \
 
 COPY spatial.py /opt/txsuite/spatial.py
 
-ENTRYPOINT ["python", "/opt/txsuite/spatial.py"]
+WORKDIR /work
+CMD ["python", "/opt/txsuite/spatial.py", "--help"]

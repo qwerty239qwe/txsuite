@@ -13,7 +13,6 @@ from urllib.request import urlopen
 
 from txsuite.runtime import TxSuiteError
 
-
 SHA256 = re.compile(r"[0-9a-f]{64}")
 LOCKED_IMAGE = re.compile(r"(?:@sha256:|^sha256:)[0-9a-f]{64}$")
 

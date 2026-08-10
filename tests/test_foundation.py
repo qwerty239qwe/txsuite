@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 from txsuite.catalog import select_tools
+from txsuite.cli import run
 from txsuite.config import load_config
 
 
@@ -23,6 +26,21 @@ class FoundationTest(unittest.TestCase):
             )
         self.assertEqual(config["execution"]["profile"], "apptainer")
         self.assertEqual(config["pipelines"]["bulk"]["release"], "3.26.0")
+
+    def test_env_list_reports_configured_owned_images(self) -> None:
+        output = StringIO()
+        with redirect_stdout(output):
+            status = run(["env", "list", "--config", "txsuite.toml"])
+
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            output.getvalue().splitlines(),
+            [
+                "bulk-r\ttxsuite/bulk-r:0.2.0",
+                "single-cell-python\ttxsuite/single-cell-python:0.2.0",
+                "spatial-python\ttxsuite/spatial-python:0.2.0",
+            ],
+        )
 
 
 if __name__ == "__main__":

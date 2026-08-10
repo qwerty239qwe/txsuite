@@ -13,11 +13,12 @@ Validated versions for the 0.1 development line:
 | Cell Ranger (native `mkref`+`count` DAG) | user-installed | stub DAG tested in CI; licensed smoke pending |
 | Space Ranger | 4.1.0 | external, user-installed; licensed smoke pending |
 | Spacemake | 0.9.1b | experimental pass-through |
-| DESeq2 | 1.52.0 / Bioconductor 3.23 | covariate-aware DE and plot smoke passed |
-| edgeR | 4.10.1 / Bioconductor 3.23 | quasi-likelihood Docker smoke passed |
-| limma | 3.68.4 / Bioconductor 3.23 | voom Docker smoke passed |
+| DESeq2 | 1.52.0 / Bioconductor 3.23 | covariate/formula DE and plot smoke passed |
+| edgeR | 4.10.1 / Bioconductor 3.23 | formula-capable quasi-likelihood Docker smoke passed |
+| limma | 3.68.4 / Bioconductor 3.23 | formula-capable voom Docker smoke passed |
 | clusterProfiler | 4.20.0 / Bioconductor 3.23 | GMT ORA and GSEA smokes passed |
-| Scanpy | 1.12.2 / Python 3.12 | Docker smoke passed |
+| Scanpy | 1.12.2 / Python 3.12 | count-safe configurable stages, QC, Scrublet, batch-aware HVGs, Leiden markers, and grouped pseudobulk Docker smoke passed |
+| Harmonypy | 2.0.0 | PCA integration Docker smoke passed |
 | SpatialData | 0.8.0 | synthetic Docker smoke passed |
 | spatialdata-io | 0.7.1 | synthetic Docker smoke passed |
 | Squidpy | 1.8.3 | synthetic Docker smoke passed |
