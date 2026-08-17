@@ -41,6 +41,10 @@ downloads run in CI.
 - `bulk.rnaseq` and `single-cell.scrnaseq` are selected, pinned integrations.
   Their planners, deferred artifacts, and release-specific result adapters are
   tested, but real FASTQ Docker and Apptainer smokes remain release blockers.
+- `bulk.de` expands contrasts from the design column when `contrasts` is
+  `vs-reference` or `all-pairs`, capped at 50 comparisons. The comparison-set
+  logic is unit-tested; the expanded DESeq2, edgeR, and limma runs themselves
+  are covered only by the existing single-contrast container smokes.
 - `bulk.salmon` and `single-cell.alevin` are native DAGs TxSuite owns end to
   end, so their artifact paths are known at plan time and need no release
   adapter. Their control plane and stubs are tested; real FASTQ runs are not.

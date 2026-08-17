@@ -67,6 +67,40 @@ Use `txsuite project validate workflow.toml` instead of relying on this list:
 validation is also responsible for artifact types, required parameters,
 dependency cycles, backend compatibility, and future registry changes.
 
+## Contrast expansion
+
+`bulk.de` runs one comparison by default. Set `contrasts` to derive the whole
+comparison set from the levels of the design column instead of writing one stage
+per pair:
+
+```toml
+[workflow.stages.params]
+design = "condition"
+reference = "control"
+test = "treated"
+contrasts = "vs-reference"    # single (default), vs-reference, or all-pairs
+```
+
+`vs-reference` compares every other level against `reference`; `all-pairs`
+compares every level combination. `reference` and `test` stay required and name
+the *primary* contrast, which keeps its existing outputs: `<method>-results.tsv`,
+`significant-genes.tsv`, and the volcano and MA plots are all unchanged. Extra
+contrasts are written to `contrasts/DE_<test>_vs_<reference>.tsv`.
+
+Every mode writes a `contrasts.tsv` index — one row in `single` mode — with the
+contrast id, its levels, gene and significant-gene counts, and the relative path
+to its table. Because the index always exists, the declared output set does not
+change with the parameter.
+
+For DESeq2 the expanded contrasts are read off one shared model fit. edgeR and
+limma model each comparison as a two-level subset, so those methods refit per
+contrast; the tradeoff is that a contrast's numbers are identical whether it was
+produced by an expanded run or a single-contrast run.
+
+Above 50 comparisons the stage fails rather than launching the run, naming the
+column and its level count. Formula/coefficient mode has no design levels to
+expand and rejects any mode other than `single`.
+
 ## Artifact references and deferred commands
 
 An input can reference a producer's named output using the exact form

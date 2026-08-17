@@ -359,6 +359,8 @@ def _default_output_path(
     }
     if uses == "bulk.de" and name == "de_results":
         return outdir / f"{params['method']}-results.tsv"
+    if uses == "bulk.de" and name == "contrast_index":
+        return outdir / "contrasts.tsv"
     return known.get((uses, name))
 
 

@@ -1,10 +1,10 @@
 suppressPackageStartupMessages(library(DESeq2))
 
 args <- commandArgs(trailingOnly = TRUE)
-if (!(length(args) %in% c(6, 10, 12))) {
+if (!(length(args) %in% c(6, 10, 12, 13))) {
     stop(paste(
         "usage: deseq2.R COUNTS METADATA DESIGN REFERENCE TEST OUTDIR",
-        "[PADJ LFC TOP_GENES COVARIATES [FORMULA COEFFICIENT]]"
+        "[PADJ LFC TOP_GENES COVARIATES [FORMULA COEFFICIENT [CONTRASTS]]]"
     ))
 }
 
@@ -22,8 +22,9 @@ covariates <- if (length(args) >= 10 && nzchar(args[[10]])) {
 } else {
     character()
 }
-formula_text <- if (length(args) == 12) args[[11]] else ""
-coefficient_name <- if (length(args) == 12) args[[12]] else ""
+formula_text <- if (length(args) >= 12) args[[11]] else ""
+coefficient_name <- if (length(args) >= 12) args[[12]] else ""
+contrast_mode <- if (length(args) == 13 && nzchar(args[[13]])) args[[13]] else "single"
 advanced <- nzchar(formula_text) || nzchar(coefficient_name)
 
 if (advanced && (!nzchar(formula_text) || !nzchar(coefficient_name))) {
@@ -38,6 +39,12 @@ if (advanced && (!grepl("^~[A-Za-z0-9_.+*: ]+$", formula_text) ||
 }
 if (advanced && !grepl("^[A-Za-z][A-Za-z0-9_.:]*$", coefficient_name)) {
     stop("coefficient must be a model coefficient name")
+}
+if (!(contrast_mode %in% c("single", "vs-reference", "all-pairs"))) {
+    stop("contrasts must be 'single', 'vs-reference', or 'all-pairs'")
+}
+if (advanced && contrast_mode != "single") {
+    stop("formula mode has no design levels to expand; contrasts must be 'single'")
 }
 if (!advanced && !grepl("^[A-Za-z][A-Za-z0-9_.]*$", design)) {
     stop("design must be a simple metadata column name")
@@ -139,18 +146,43 @@ if (advanced) {
         alpha = padj_threshold
     )
 }
-result <- data.frame(
-    gene_id = rownames(de_result),
-    as.data.frame(de_result),
-    check.names = FALSE
-)
-significant <- result[
-    !is.na(result$padj) &
-        result$padj <= padj_threshold &
-        abs(result$log2FoldChange) >= lfc_threshold,
-    ,
-    drop = FALSE
-]
+
+# Every contrast is read off the single fit above. Sharing one dispersion
+# estimate is what makes expanded contrasts both cheaper and mutually
+# consistent, unlike running one model per comparison.
+as_result_table <- function(de) {
+    data.frame(gene_id = rownames(de), as.data.frame(de), check.names = FALSE)
+}
+select_significant <- function(table) {
+    table[
+        !is.na(table$padj) &
+            table$padj <= padj_threshold &
+            abs(table$log2FoldChange) >= lfc_threshold,
+        ,
+        drop = FALSE
+    ]
+}
+expanded_contrasts <- function(mode, levels_present, reference, test) {
+    if (mode == "single") {
+        return(list())
+    }
+    pairs <- list()
+    if (mode == "vs-reference") {
+        for (level in setdiff(levels_present, reference)) {
+            pairs[[length(pairs) + 1]] <- c(level, reference)
+        }
+    } else {
+        combinations <- combn(levels_present, 2, simplify = FALSE)
+        for (pair in combinations) {
+            pairs[[length(pairs) + 1]] <- c(pair[[2]], pair[[1]])
+        }
+    }
+    # The primary contrast is written at the output root, so drop it here.
+    Filter(function(pair) !(pair[[1]] == test && pair[[2]] == reference), pairs)
+}
+
+result <- as_result_table(de_result)
+significant <- select_significant(result)
 
 dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 write.table(
@@ -163,6 +195,60 @@ write.table(
 write.table(
     significant,
     file.path(outdir, "significant-genes.tsv"),
+    sep = "\t",
+    quote = FALSE,
+    row.names = FALSE
+)
+
+contrast_index <- data.frame(
+    contrast_id = if (advanced) coefficient_name else paste0(test, "_vs_", reference),
+    reference = if (advanced) "" else reference,
+    test = if (advanced) "" else test,
+    genes_tested = nrow(result),
+    significant_genes = nrow(significant),
+    path = "deseq2-results.tsv",
+    stringsAsFactors = FALSE
+)
+if (!advanced) {
+    extra_contrasts <- expanded_contrasts(
+        contrast_mode, levels(metadata[[design]]), reference, test
+    )
+    if (length(extra_contrasts) + 1L > 50L) {
+        stop(paste0(
+            "contrasts='", contrast_mode, "' expands column '", design, "' with ",
+            nlevels(metadata[[design]]), " levels into ", length(extra_contrasts) + 1L,
+            " comparisons; select levels or use 'vs-reference'"
+        ))
+    }
+    if (length(extra_contrasts)) {
+        dir.create(file.path(outdir, "contrasts"), recursive = TRUE, showWarnings = FALSE)
+    }
+    for (pair in extra_contrasts) {
+        pair_table <- as_result_table(
+            results(dds, contrast = c(design, pair[[1]], pair[[2]]), alpha = padj_threshold)
+        )
+        relative <- file.path("contrasts", paste0("DE_", pair[[1]], "_vs_", pair[[2]], ".tsv"))
+        write.table(
+            pair_table,
+            file.path(outdir, relative),
+            sep = "\t",
+            quote = FALSE,
+            row.names = FALSE
+        )
+        contrast_index <- rbind(contrast_index, data.frame(
+            contrast_id = paste0(pair[[1]], "_vs_", pair[[2]]),
+            reference = pair[[2]],
+            test = pair[[1]],
+            genes_tested = nrow(pair_table),
+            significant_genes = nrow(select_significant(pair_table)),
+            path = relative,
+            stringsAsFactors = FALSE
+        ))
+    }
+}
+write.table(
+    contrast_index,
+    file.path(outdir, "contrasts.tsv"),
     sep = "\t",
     quote = FALSE,
     row.names = FALSE

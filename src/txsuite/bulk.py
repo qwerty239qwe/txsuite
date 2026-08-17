@@ -14,6 +14,7 @@ REQUIRED_COLUMNS = {"sample", "fastq_1", "fastq_2", "strandedness"}
 STRANDEDNESS = {"auto", "forward", "reverse", "unstranded"}
 DE_METHODS = ("deseq2", "edger", "limma")
 PSEUDO_ALIGNERS = ("salmon", "kallisto")
+CONTRAST_MODES = ("single", "vs-reference", "all-pairs")
 
 
 def validate_samplesheet(path: Path) -> int:
@@ -274,13 +275,20 @@ def deseq2_command(
     padj: float = 0.05,
     lfc: float = 1.0,
     top_genes: int = 50,
+    contrasts: str = "single",
     check_inputs: bool = True,
 ) -> list[str]:
     if check_inputs:
         for label, path in (("Counts", counts), ("Metadata", metadata)):
             if not path.is_file():
                 raise TxSuiteError(f"{label} file does not exist: {path}")
+    if contrasts not in CONTRAST_MODES:
+        raise TxSuiteError(f"Contrasts must be one of: {', '.join(CONTRAST_MODES)}")
     advanced = formula is not None or coefficient is not None
+    if advanced and contrasts != "single":
+        raise TxSuiteError(
+            "Formula mode has no design levels to expand; contrasts must be 'single'"
+        )
     if advanced:
         if not formula or not coefficient:
             raise TxSuiteError("Formula and coefficient must be used together")
@@ -346,6 +354,7 @@ def deseq2_command(
         ",".join(covariates),
         formula or "",
         coefficient or "",
+        contrasts,
     ]
 
 
@@ -365,6 +374,7 @@ def differential_expression_command(
     padj: float = 0.05,
     lfc: float = 1.0,
     top_genes: int = 50,
+    contrasts: str = "single",
     check_inputs: bool = True,
 ) -> list[str]:
     if method not in DE_METHODS:
@@ -383,6 +393,7 @@ def differential_expression_command(
         padj=padj,
         lfc=lfc,
         top_genes=top_genes,
+        contrasts=contrasts,
         check_inputs=check_inputs,
     )
     if method != "deseq2":

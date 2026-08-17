@@ -4,10 +4,10 @@ suppressPackageStartupMessages({
 })
 
 args <- commandArgs(trailingOnly = TRUE)
-if (!(length(args) %in% c(11, 13))) {
+if (!(length(args) %in% c(11, 13, 14))) {
     stop(paste(
         "usage: alternative_de.R METHOD COUNTS METADATA DESIGN REFERENCE TEST",
-        "OUTDIR PADJ LFC TOP_GENES COVARIATES [FORMULA COEFFICIENT]"
+        "OUTDIR PADJ LFC TOP_GENES COVARIATES [FORMULA COEFFICIENT [CONTRASTS]]"
     ))
 }
 
@@ -26,8 +26,9 @@ covariates <- if (nzchar(args[[11]])) {
 } else {
     character()
 }
-formula_text <- if (length(args) == 13) args[[12]] else ""
-coefficient_name <- if (length(args) == 13) args[[13]] else ""
+formula_text <- if (length(args) >= 13) args[[12]] else ""
+coefficient_name <- if (length(args) >= 13) args[[13]] else ""
+contrast_mode <- if (length(args) == 14 && nzchar(args[[14]])) args[[14]] else "single"
 advanced <- nzchar(formula_text) || nzchar(coefficient_name)
 
 if (!(method %in% c("edger", "limma"))) {
@@ -45,6 +46,12 @@ if (advanced && (!grepl("^~[A-Za-z0-9_.+*: ]+$", formula_text) ||
 }
 if (advanced && !grepl("^[A-Za-z][A-Za-z0-9_.:]*$", coefficient_name)) {
     stop("coefficient must be a model coefficient name")
+}
+if (!(contrast_mode %in% c("single", "vs-reference", "all-pairs"))) {
+    stop("contrasts must be 'single', 'vs-reference', or 'all-pairs'")
+}
+if (advanced && contrast_mode != "single") {
+    stop("formula mode has no design levels to expand; contrasts must be 'single'")
 }
 if (!advanced && !grepl("^[A-Za-z][A-Za-z0-9_.]*$", design)) {
     stop("design must be a simple metadata column name")
@@ -108,6 +115,11 @@ for (column in model_columns) {
         metadata[[column]] <- factor(metadata[[column]])
     }
 }
+# The primary contrast subsets the data to two levels below. Expanded contrasts
+# are computed at the end of the script and need the unsubsetted inputs.
+full_metadata <- metadata
+full_count_matrix <- count_matrix
+
 if (advanced) {
     model <- model.matrix(model_formula, metadata)
     if (!(coefficient_name %in% colnames(model))) {
@@ -290,6 +302,152 @@ summary <- data.frame(
 write.table(
     summary,
     file.path(outdir, "analysis-summary.tsv"),
+    sep = "\t",
+    quote = FALSE,
+    row.names = FALSE
+)
+
+# Expanded contrasts.
+#
+# Unlike the DESeq2 script, edgeR and limma cannot read extra contrasts off the
+# primary fit: this script models each comparison as a two-level subset, so the
+# model matrix only knows about the reference and test levels. Each additional
+# contrast therefore repeats the subset, filtering, and fit on the full inputs.
+# The upside is that the primary contrast's numbers are unchanged by this
+# feature, and every contrast is computed exactly the way a single-contrast run
+# would compute it.
+select_significant <- function(table) {
+    table[
+        !is.na(table$padj) &
+            table$padj <= padj_threshold &
+            abs(table$log2FoldChange) >= lfc_threshold,
+        ,
+        drop = FALSE
+    ]
+}
+expanded_contrasts <- function(mode, levels_present, reference, test) {
+    if (mode == "single") {
+        return(list())
+    }
+    pairs <- list()
+    if (mode == "vs-reference") {
+        for (level in setdiff(levels_present, reference)) {
+            pairs[[length(pairs) + 1]] <- c(level, reference)
+        }
+    } else {
+        for (pair in combn(levels_present, 2, simplify = FALSE)) {
+            pairs[[length(pairs) + 1]] <- c(pair[[2]], pair[[1]])
+        }
+    }
+    Filter(function(pair) !(pair[[1]] == test && pair[[2]] == reference), pairs)
+}
+pairwise_result <- function(ref_level, test_level) {
+    selected <- full_metadata[[design]] %in% c(ref_level, test_level)
+    pair_metadata <- droplevels(full_metadata[selected, , drop = FALSE])
+    pair_counts <- full_count_matrix[, rownames(pair_metadata), drop = FALSE]
+    pair_group <- factor(pair_metadata[[design]], levels = c(ref_level, test_level))
+    if (anyNA(pair_group) || any(table(pair_group) < 2)) {
+        stop(paste(
+            "each level in a contrast needs at least two samples;",
+            test_level, "vs", ref_level, "does not"
+        ))
+    }
+    pair_metadata$.txsuite_test <- as.integer(pair_group == test_level)
+    pair_model <- model.matrix(reformulate(c(covariates, ".txsuite_test")), pair_metadata)
+    if (qr(pair_model)$rank < ncol(pair_model)) {
+        stop(paste(
+            "the design matrix is not full rank for", test_level, "vs", ref_level
+        ))
+    }
+    pair_coefficient <- match(".txsuite_test", colnames(pair_model))
+    pair_dge <- DGEList(counts = pair_counts)
+    keep_pair <- filterByExpr(pair_dge, design = pair_model)
+    if (!any(keep_pair)) {
+        stop(paste("no genes pass expression filtering for", test_level, "vs", ref_level))
+    }
+    pair_dge <- calcNormFactors(pair_dge[keep_pair, , keep.lib.sizes = FALSE])
+    pair_normalized <- cpm(pair_dge, normalized.lib.sizes = TRUE, log = FALSE)
+    if (method == "edger") {
+        pair_dge <- estimateDisp(pair_dge, pair_model)
+        pair_fit <- glmQLFit(pair_dge, pair_model)
+        pair_table <- topTags(
+            glmQLFTest(pair_fit, coef = pair_coefficient), n = Inf, sort.by = "none"
+        )$table
+        data.frame(
+            gene_id = rownames(pair_table),
+            baseMean = rowMeans(pair_normalized[rownames(pair_table), , drop = FALSE]),
+            log2FoldChange = pair_table$logFC,
+            stat = sign(pair_table$logFC) * sqrt(pair_table$F),
+            pvalue = pair_table$PValue,
+            padj = pair_table$FDR,
+            check.names = FALSE,
+            row.names = NULL
+        )
+    } else {
+        pair_voom <- voom(pair_dge, pair_model, plot = FALSE)
+        pair_fit <- eBayes(lmFit(pair_voom, pair_model))
+        pair_table <- topTable(
+            pair_fit, coef = pair_coefficient, number = Inf, sort.by = "none"
+        )
+        data.frame(
+            gene_id = rownames(pair_table),
+            baseMean = rowMeans(pair_normalized[rownames(pair_table), , drop = FALSE]),
+            log2FoldChange = pair_table$logFC,
+            stat = pair_table$t,
+            pvalue = pair_table$P.Value,
+            padj = pair_table$adj.P.Val,
+            check.names = FALSE,
+            row.names = NULL
+        )
+    }
+}
+
+contrast_index <- data.frame(
+    contrast_id = if (advanced) coefficient_name else paste0(test, "_vs_", reference),
+    reference = if (advanced) "" else reference,
+    test = if (advanced) "" else test,
+    genes_tested = nrow(result),
+    significant_genes = nrow(significant),
+    path = paste0(method, "-results.tsv"),
+    stringsAsFactors = FALSE
+)
+if (!advanced) {
+    design_levels <- levels(factor(full_metadata[[design]]))
+    extra_contrasts <- expanded_contrasts(contrast_mode, design_levels, reference, test)
+    if (length(extra_contrasts) + 1L > 50L) {
+        stop(paste0(
+            "contrasts='", contrast_mode, "' expands column '", design, "' with ",
+            length(design_levels), " levels into ", length(extra_contrasts) + 1L,
+            " comparisons; select levels or use 'vs-reference'"
+        ))
+    }
+    if (length(extra_contrasts)) {
+        dir.create(file.path(outdir, "contrasts"), recursive = TRUE, showWarnings = FALSE)
+    }
+    for (pair in extra_contrasts) {
+        pair_table <- pairwise_result(pair[[2]], pair[[1]])
+        relative <- file.path("contrasts", paste0("DE_", pair[[1]], "_vs_", pair[[2]], ".tsv"))
+        write.table(
+            pair_table,
+            file.path(outdir, relative),
+            sep = "\t",
+            quote = FALSE,
+            row.names = FALSE
+        )
+        contrast_index <- rbind(contrast_index, data.frame(
+            contrast_id = paste0(pair[[1]], "_vs_", pair[[2]]),
+            reference = pair[[2]],
+            test = pair[[1]],
+            genes_tested = nrow(pair_table),
+            significant_genes = nrow(select_significant(pair_table)),
+            path = relative,
+            stringsAsFactors = FALSE
+        ))
+    }
+}
+write.table(
+    contrast_index,
+    file.path(outdir, "contrasts.tsv"),
     sep = "\t",
     quote = FALSE,
     row.names = FALSE

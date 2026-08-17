@@ -76,6 +76,7 @@ def bulk_de_command(context: Mapping[str, Any] | object) -> list[str]:
         padj=params.get("padj", 0.05),
         lfc=params.get("lfc", 1.0),
         top_genes=params.get("top_genes", 50),
+        contrasts=params.get("contrasts", "single"),
         check_inputs=check_inputs,
     )
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from txsuite.bulk import PSEUDO_ALIGNERS, SALMON_LIBTYPES
+from txsuite.bulk import CONTRAST_MODES, PSEUDO_ALIGNERS, SALMON_LIBTYPES
 from txsuite.runtime import TxSuiteError
 from txsuite.single_cell import ALEVIN_CHEMISTRIES, ALEVIN_RESOLUTIONS
 
@@ -392,10 +392,12 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         outputs={
             "results": "bulk.differential-expression-results",
             "de_results": "bulk.differential-expression-table",
+            "contrast_index": "bulk.differential-expression-index",
         },
         output_policies={
             "results": OutputPolicy("directory", non_empty=True),
             "de_results": OutputPolicy("file", non_empty=True),
+            "contrast_index": OutputPolicy("file", non_empty=True),
         },
         defaults={
             "method": "deseq2",
@@ -404,6 +406,7 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
             "padj": 0.05,
             "lfc": 1.0,
             "top_genes": 50,
+            "contrasts": "single",
         },
         validators={
             "method": _choice("deseq2", "edger", "limma"),
@@ -415,6 +418,7 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
             "padj": _probability,
             "lfc": _non_negative_number,
             "top_genes": _positive_int,
+            "contrasts": _choice(*CONTRAST_MODES),
         },
         required_executables=("docker",),
         required_images=("images.bulk_r",),
