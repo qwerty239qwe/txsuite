@@ -1,0 +1,37 @@
+schema_version = 1
+
+[project]
+id = "scrnaseq_alevin_example"
+modality = "single-cell"
+output_root = "results"
+
+[execution]
+profile = "docker"
+resume = true
+
+[[workflow.stages]]
+id = "quantify"
+uses = "single-cell.alevin"
+
+[workflow.stages.inputs]
+samplesheet = "samplesheet.csv"
+
+[workflow.stages.params]
+fasta = "data/genome.fa"
+gtf = "data/genes.gtf"
+chemistry = "10xv3"
+resolution = "cr-like"
+
+[[workflow.stages]]
+id = "analyze"
+uses = "single-cell.scanpy"
+depends_on = ["quantify"]
+
+[workflow.stages.inputs]
+input = "${quantify.matrix}"
+
+[workflow.stages.params]
+min_genes = 200
+min_cells = 3
+max_mito_pct = 20.0
+resolution = 1.0

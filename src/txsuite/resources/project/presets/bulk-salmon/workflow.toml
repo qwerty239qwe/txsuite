@@ -1,0 +1,37 @@
+schema_version = 1
+
+[project]
+id = "bulk_salmon_example"
+modality = "bulk"
+output_root = "results"
+
+[execution]
+profile = "docker"
+resume = true
+
+[[workflow.stages]]
+id = "quantify"
+uses = "bulk.salmon"
+
+[workflow.stages.inputs]
+samplesheet = "samplesheet.csv"
+
+[workflow.stages.params]
+fasta = "data/genome.fa"
+gtf = "data/genes.gtf"
+libtype = "A"
+
+[[workflow.stages]]
+id = "differential"
+uses = "bulk.de"
+depends_on = ["quantify"]
+
+[workflow.stages.inputs]
+counts = "${quantify.counts}"
+metadata = "metadata.tsv"
+
+[workflow.stages.params]
+design = "condition"
+reference = "control"
+test = "treated"
+covariates = ["batch"]

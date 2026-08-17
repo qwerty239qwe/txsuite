@@ -10,6 +10,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "execution": {"profile": "docker"},
     "images": {
         "bulk_r": "txsuite/bulk-r:0.2.0",
+        "salmon": "txsuite/salmon:0.2.0",
         "single_cell_python": "txsuite/single-cell-python:0.2.0",
         "spatial_python": "txsuite/spatial-python:0.2.0",
     },
@@ -25,6 +26,7 @@ profile = "docker"
 
 [images]
 bulk_r = "txsuite/bulk-r:0.2.0"
+salmon = "txsuite/salmon:0.2.0"
 single_cell_python = "txsuite/single-cell-python:0.2.0"
 spatial_python = "txsuite/spatial-python:0.2.0"
 
@@ -94,7 +96,7 @@ def _validate(config: dict[str, Any]) -> None:
             raise ConfigError(
                 f"pipelines.{modality} requires non-empty name and release"
             )
-    for image in ("bulk_r", "single_cell_python", "spatial_python"):
+    for image in ("bulk_r", "salmon", "single_cell_python", "spatial_python"):
         if (
             not isinstance(config.get("images", {}).get(image), str)
             or not config["images"][image]

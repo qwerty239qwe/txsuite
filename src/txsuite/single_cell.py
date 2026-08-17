@@ -72,10 +72,19 @@ def workflow_command(
     protocol: str | None = None,
     params_file: Path | None = None,
     nextflow_config: Path | None = None,
+    simpleaf_index: Path | None = None,
+    txp2gene: Path | None = None,
     resume: bool = False,
 ) -> list[str]:
     if aligner not in ALIGNERS:
         raise TxSuiteError(f"Aligner must be one of: {', '.join(ALIGNERS)}")
+    if simpleaf_index is not None:
+        if aligner != "simpleaf":
+            raise TxSuiteError("A simpleaf index requires --aligner simpleaf")
+        if not simpleaf_index.is_dir():
+            raise TxSuiteError(f"Simpleaf index does not exist: {simpleaf_index}")
+    if txp2gene is not None and not txp2gene.is_file():
+        raise TxSuiteError(f"Transcript-to-gene table does not exist: {txp2gene}")
     pipeline = config["pipelines"]["single_cell"]
     command = [
         "nextflow",
@@ -94,6 +103,10 @@ def workflow_command(
     ]
     if protocol:
         command.extend(["--protocol", protocol])
+    if simpleaf_index is not None:
+        command.extend(["--simpleaf_index", str(simpleaf_index.resolve())])
+    if txp2gene is not None:
+        command.extend(["--txp2gene", str(txp2gene.resolve())])
     if params_file is not None:
         if not params_file.is_file():
             raise TxSuiteError(f"Params file does not exist: {params_file}")
@@ -901,6 +914,155 @@ def cellranger_workflow_command(
     return command
 
 
+ALEVIN_CHEMISTRIES = ("10xv2", "10xv3", "10xv4", "10xv3-5p", "dropseq")
+ALEVIN_RESOLUTIONS = ("cr-like", "cr-like-em", "parsimony", "parsimony-em", "trivial")
+
+
+def alevin_workflow_command(
+    config: dict[str, Any],
+    *,
+    samplesheet: Path,
+    outdir: Path,
+    fasta: Path | None = None,
+    gtf: Path | None = None,
+    simpleaf_index: Path | None = None,
+    chemistry: str = "10xv3",
+    resolution: str = "cr-like",
+    whitelist: Path | None = None,
+    rlen: int = 91,
+    salmon_image: str | None = None,
+    single_cell_image: str | None = None,
+    nextflow_config: Path | None = None,
+    resume: bool = False,
+    check_inputs: bool = True,
+) -> list[str]:
+    """Build the native simpleaf/alevin-fry Nextflow DAG.
+
+    Either ``simpleaf_index`` or both ``fasta`` and ``gtf`` must be supplied.
+    The DAG converts the alevin-fry output to ``.h5ad`` in the single-cell image
+    so the result drops straight into ``single-cell.scanpy``.
+    """
+
+    if chemistry not in ALEVIN_CHEMISTRIES:
+        raise TxSuiteError(
+            f"Alevin chemistry must be one of: {', '.join(ALEVIN_CHEMISTRIES)}"
+        )
+    if resolution not in ALEVIN_RESOLUTIONS:
+        raise TxSuiteError(
+            f"Alevin resolution must be one of: {', '.join(ALEVIN_RESOLUTIONS)}"
+        )
+    if rlen < 1:
+        raise TxSuiteError("Alevin read length must be positive")
+    if bool(simpleaf_index) == bool(fasta or gtf):
+        raise TxSuiteError(
+            "Pass either --simpleaf-index, or both --fasta and --gtf to build one"
+        )
+    if bool(fasta) != bool(gtf):
+        raise TxSuiteError("Building a simpleaf index requires both --fasta and --gtf")
+    if check_inputs:
+        _validate_droplet_samplesheet(samplesheet)
+        for label, path, is_dir in (
+            ("Simpleaf index", simpleaf_index, True),
+            ("Genome FASTA", fasta, False),
+            ("Annotation GTF", gtf, False),
+            ("Barcode whitelist", whitelist, False),
+        ):
+            if path is None:
+                continue
+            if is_dir and not path.is_dir():
+                raise TxSuiteError(f"{label} does not exist: {path}")
+            if not is_dir and not path.is_file():
+                raise TxSuiteError(f"{label} does not exist: {path}")
+    if nextflow_config is not None and not nextflow_config.is_file():
+        raise TxSuiteError(f"Nextflow config does not exist: {nextflow_config}")
+
+    images = config["images"]
+    salmon = salmon_image or images["salmon"]
+    single_cell = single_cell_image or images["single_cell_python"]
+    if not salmon.strip() or not single_cell.strip():
+        raise TxSuiteError("Workflow images cannot be empty")
+
+    workflow = resources.files("txsuite.resources.nextflow").joinpath(
+        "single_cell_alevin.nf"
+    )
+    command = [
+        "nextflow",
+        "run",
+        str(workflow),
+        "-profile",
+        config["execution"]["profile"],
+        "-work-dir",
+        str((outdir / ".nextflow-work").resolve()),
+    ]
+    if nextflow_config is not None:
+        command.extend(["-c", str(nextflow_config.resolve())])
+    if resume:
+        command.append("-resume")
+    command.extend(
+        [
+            "--samplesheet",
+            str(samplesheet.resolve()),
+            "--outdir",
+            str(outdir.resolve()),
+            "--salmon_image",
+            salmon,
+            "--single_cell_image",
+            single_cell,
+            "--alevin_chemistry",
+            chemistry,
+            "--alevin_resolution",
+            resolution,
+            "--simpleaf_rlen",
+            str(rlen),
+        ]
+    )
+    if simpleaf_index is not None:
+        command.extend(["--simpleaf_index", str(simpleaf_index.resolve())])
+    else:
+        command.extend(["--fasta", str(fasta.resolve()), "--gtf", str(gtf.resolve())])
+    if whitelist is not None:
+        command.extend(["--alevin_whitelist", str(whitelist.resolve())])
+    return command
+
+
+def _validate_droplet_samplesheet(path: Path) -> int:
+    """Require paired barcode and cDNA reads for every droplet sample."""
+
+    if not path.is_file():
+        raise TxSuiteError(f"Samplesheet does not exist: {path}")
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        missing = {"sample", "fastq_1", "fastq_2"} - set(reader.fieldnames or ())
+        if missing:
+            raise TxSuiteError(
+                f"Samplesheet is missing columns: {', '.join(sorted(missing))}"
+            )
+        seen: set[str] = set()
+        rows = 0
+        for line, row in enumerate(reader, start=2):
+            sample = (row.get("sample") or "").strip()
+            if (
+                not sample
+                or not (row.get("fastq_1") or "").strip()
+                or not (row.get("fastq_2") or "").strip()
+            ):
+                raise TxSuiteError(
+                    f"Samplesheet line {line} requires sample, fastq_1, and fastq_2"
+                )
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", sample):
+                raise TxSuiteError(
+                    f"Samplesheet line {line} sample may contain only letters, "
+                    "numbers, ., _ and -"
+                )
+            if sample in seen:
+                raise TxSuiteError(f"Samplesheet line {line} repeats sample {sample!r}")
+            seen.add(sample)
+            rows += 1
+    if not rows:
+        raise TxSuiteError("Samplesheet has no data rows")
+    return rows
+
+
 def build_cellranger_image(tag: str, *, source_tarball: Path, run_dir: Path) -> None:
     """Build a local Cell Ranger image from a tarball the caller already licensed.
 
@@ -955,7 +1117,7 @@ def build_single_cell_image(tag: str, *, run_dir: Path) -> None:
     package = resources.files("txsuite.resources.single_cell_python")
     with tempfile.TemporaryDirectory(prefix="txsuite-single-cell-") as directory:
         context = Path(directory)
-        for name in ("Dockerfile", "single_cell.py"):
+        for name in ("Dockerfile", "single_cell.py", "alevin_to_h5ad.py"):
             (context / name).write_text(
                 package.joinpath(name).read_text(encoding="utf-8"), encoding="utf-8"
             )

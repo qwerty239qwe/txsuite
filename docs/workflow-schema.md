@@ -49,9 +49,19 @@ Each `[[workflow.stages]]` has:
 
 Currently registered stage types are:
 
-- `bulk.rnaseq`, `bulk.de`, and `bulk.enrichment`;
-- `single-cell.scrnaseq`, `single-cell.scanpy`,
+- `bulk.rnaseq`, `bulk.salmon`, `bulk.de`, and `bulk.enrichment`;
+- `single-cell.scrnaseq`, `single-cell.alevin`, `single-cell.scanpy`,
   `single-cell.pseudobulk`, and `single-cell.pseudobulk-de`.
+
+`bulk.salmon` and `single-cell.alevin` are native TxSuite DAGs rather than
+nf-core launchers. They build a decoy-aware salmon index or a simpleaf splici
+index from `fasta` and `gtf`, or reuse a prebuilt one through `salmon_index`
+(with a `tx2gene` table) or `simpleaf_index`. Because TxSuite owns their output
+layout, their artifacts resolve at plan time instead of deferring to a
+postflight adapter. `bulk.salmon` emits `bulk.gene-counts`, so it substitutes
+for `bulk.rnaseq` ahead of `bulk.de`; `single-cell.alevin` emits
+`single-cell.matrix`, so it substitutes for `single-cell.scrnaseq` ahead of
+`single-cell.scanpy`.
 
 Use `txsuite project validate workflow.toml` instead of relying on this list:
 validation is also responsible for artifact types, required parameters,
@@ -91,7 +101,9 @@ Create a safe, non-overwriting scaffold with:
 
 ```bash
 txsuite project init --preset bulk-rnaseq my-project
+txsuite project init --preset bulk-salmon my-project
 txsuite project init --preset scrnaseq my-project
+txsuite project init --preset scrnaseq-alevin my-project
 txsuite project init --preset scrnaseq-pseudobulk my-project
 ```
 

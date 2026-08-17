@@ -37,6 +37,7 @@ class FoundationTest(unittest.TestCase):
             output.getvalue().splitlines(),
             [
                 "bulk-r\ttxsuite/bulk-r:0.2.0",
+                "salmon\ttxsuite/salmon:0.2.0",
                 "single-cell-python\ttxsuite/single-cell-python:0.2.0",
                 "spatial-python\ttxsuite/spatial-python:0.2.0",
             ],
