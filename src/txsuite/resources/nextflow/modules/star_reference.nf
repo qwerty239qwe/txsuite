@@ -40,23 +40,23 @@ process SAMTOOLS_FAIDX {
     container params.star_image
     publishDir "${params.outdir}/reference", mode: 'copy'
 
-    // The FASTA is staged under a canonical name so the published index has a
-    // deterministic path the planner can resolve without knowing the caller's
-    // filename. The contents are unaffected.
+    // GATK resolves the index and dictionary from the reference basename: X.fa
+    // needs X.fa.fai and X.dict beside it. These therefore keep the caller's
+    // FASTA name, and the planner derives the same names from the fasta input.
     input:
-    path fasta, stageAs: 'genome.fa'
+    path fasta
 
     output:
-    path 'genome.fa.fai', emit: fai
+    path "${fasta}.fai", emit: fai
 
     script:
     """
-    samtools faidx genome.fa
+    samtools faidx ${fasta}
     """
 
     stub:
     """
-    printf 'chr1\\t1000\\t6\\t60\\t61\\n' > genome.fa.fai
+    printf 'chr1\\t1000\\t6\\t60\\t61\\n' > ${fasta}.fai
     """
 }
 
@@ -67,19 +67,19 @@ process GATK_SEQUENCE_DICTIONARY {
     publishDir "${params.outdir}/reference", mode: 'copy'
 
     input:
-    path fasta, stageAs: 'genome.fa'
+    path fasta
 
     output:
-    path 'genome.dict', emit: dict
+    path "${fasta.baseName}.dict", emit: dict
 
     script:
     """
-    gatk CreateSequenceDictionary --REFERENCE genome.fa --OUTPUT genome.dict
+    gatk CreateSequenceDictionary --REFERENCE ${fasta} --OUTPUT ${fasta.baseName}.dict
     """
 
     stub:
     """
-    printf '@HD\\tVN:1.6\\n@SQ\\tSN:chr1\\tLN:1000\\n' > genome.dict
+    printf '@HD\\tVN:1.6\\n@SQ\\tSN:chr1\\tLN:1000\\n' > ${fasta.baseName}.dict
     """
 }
 

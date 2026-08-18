@@ -104,8 +104,23 @@ class RnavarCommandTests(unittest.TestCase):
         skipped = self._command(dbsnp=None, skip_baserecalibration=True)
         self.assertIn("--skip_baserecalibration", skipped)
 
-        with self.assertRaisesRegex(TxSuiteError, "unused when base recalibration"):
-            self._command(skip_baserecalibration=True)
+    def test_dbsnp_survives_skipped_recalibration_but_known_indels_do_not(self) -> None:
+        # rnavar hands dbSNP to HaplotypeCaller for rsID annotation, which has
+        # nothing to do with BQSR, so skipping recalibration must not reject it.
+        command = self._command(skip_baserecalibration=True)
+        self.assertIn("--skip_baserecalibration", command)
+        self.assertEqual(command[command.index("--dbsnp") + 1], str(self.dbsnp.resolve()))
+
+        indels = self.root / "known_indels.vcf.gz"
+        indels.write_bytes(b"\x1f\x8b")
+        with self.assertRaisesRegex(TxSuiteError, "Known indels are unused"):
+            self._command(
+                dbsnp=None, known_indels=indels, skip_baserecalibration=True
+            )
+
+    def test_unknown_tool_error_names_the_offending_value(self) -> None:
+        with self.assertRaisesRegex(TxSuiteError, "bcftools"):
+            self._command(tools=("bcftools",))
 
     def test_annotation_tools_require_their_caches(self) -> None:
         with self.assertRaisesRegex(TxSuiteError, "snpEff annotation requires"):

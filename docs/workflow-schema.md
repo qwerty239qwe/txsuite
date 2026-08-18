@@ -100,6 +100,10 @@ Reference preparation records the read length and splice-junction overhang in
 `reference/reference-manifest.tsv`, because an index built for the wrong
 overhang runs without complaint while losing junction sensitivity.
 
+The published FASTA index and sequence dictionary keep the caller's FASTA name
+— `GRCh38.fa` yields `GRCh38.fa.fai` and `GRCh38.dict` — because GATK resolves
+both from the reference basename rather than from the paths it is handed.
+
 TxSuite rejects two rnavar combinations before Nextflow starts: base
 recalibration without `dbsnp` or `known_indels`, and an annotation tool without
 its cache. Both otherwise surface only after alignment has already run.

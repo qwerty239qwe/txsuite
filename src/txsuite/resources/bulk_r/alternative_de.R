@@ -339,7 +339,15 @@ expanded_contrasts <- function(mode, levels_present, reference, test) {
             pairs[[length(pairs) + 1]] <- c(pair[[2]], pair[[1]])
         }
     }
-    Filter(function(pair) !(pair[[1]] == test && pair[[2]] == reference), pairs)
+    # A pair is the primary contrast in either orientation; keeping the mirrored
+    # one would rerun the same comparison with inverted signs.
+    Filter(
+        function(pair) {
+            !((pair[[1]] == test && pair[[2]] == reference) ||
+                (pair[[1]] == reference && pair[[2]] == test))
+        },
+        pairs
+    )
 }
 pairwise_result <- function(ref_level, test_level) {
     selected <- full_metadata[[design]] %in% c(ref_level, test_level)
@@ -412,7 +420,13 @@ contrast_index <- data.frame(
     stringsAsFactors = FALSE
 )
 if (!advanced) {
-    design_levels <- levels(factor(full_metadata[[design]]))
+    # deseq2.R relevels the design factor so the reference sorts first, which is
+    # what orients every generated pair as "level vs reference". This script
+    # never fits a full-factor model, so order the levels explicitly instead;
+    # otherwise an alphabetically-later reference produces the primary contrast
+    # inverted and the filter inside expanded_contrasts misses it.
+    observed_levels <- levels(factor(full_metadata[[design]]))
+    design_levels <- c(reference, setdiff(observed_levels, reference))
     extra_contrasts <- expanded_contrasts(contrast_mode, design_levels, reference, test)
     if (length(extra_contrasts) + 1L > 50L) {
         stop(paste0(

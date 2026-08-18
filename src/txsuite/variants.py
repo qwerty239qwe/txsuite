@@ -108,7 +108,8 @@ def rnavar_workflow_command(
     unknown_tools = sorted(set(tools) - set(ANNOTATION_TOOLS))
     if unknown_tools:
         raise TxSuiteError(
-            f"Annotation tools must be among: {', '.join(ANNOTATION_TOOLS)}"
+            f"Unknown annotation tool(s): {', '.join(unknown_tools)}; "
+            f"supported: {', '.join(ANNOTATION_TOOLS)}"
         )
     if len(set(tools)) != len(tools):
         raise TxSuiteError("Annotation tools must be unique")
@@ -122,9 +123,12 @@ def rnavar_workflow_command(
             "Base recalibration requires --dbsnp or --known-indels; pass "
             "--skip-baserecalibration to run without it"
         )
-    if skip_baserecalibration and (dbsnp is not None or known_indels is not None):
+    if skip_baserecalibration and known_indels is not None:
+        # dbSNP is deliberately still allowed here: rnavar feeds it to
+        # HaplotypeCaller for rsID annotation, which is independent of BQSR.
+        # Known indels have no consumer once recalibration is skipped.
         raise TxSuiteError(
-            "Known sites are unused when base recalibration is skipped"
+            "Known indels are unused when base recalibration is skipped"
         )
 
     if check_inputs:

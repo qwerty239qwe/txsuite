@@ -176,6 +176,18 @@ class ContrastScriptTests(unittest.TestCase):
                 # silently launch a quadratic number of comparisons.
                 self.assertIn("> 50L", script)
 
+    def test_alternative_script_orders_levels_reference_first(self) -> None:
+        # deseq2.R gets this from relevel(); alternative_de.R has no full-factor
+        # model, so it must order the levels itself before expanding. Using raw
+        # alphabetical order there once produced an inverted duplicate of the
+        # primary contrast.
+        script = self._script("alternative_de.R")
+        self.assertIn(
+            "design_levels <- c(reference, setdiff(observed_levels, reference))",
+            script,
+        )
+        self.assertIn("relevel(metadata[[design]], ref = reference)", self._script("deseq2.R"))
+
     def test_python_and_r_agree_on_the_accepted_modes(self) -> None:
         for name in ("deseq2.R", "alternative_de.R"):
             with self.subTest(script=name):
@@ -251,6 +263,44 @@ class ContrastSetTests(unittest.TestCase):
             self._pairs("deseq2.R", "all-pairs", levels, "control", "high"),
             ["low_vs_control", "high_vs_low"],
         )
+
+    def test_expansion_is_correct_when_the_reference_sorts_last(self) -> None:
+        """Expansion holds for any reference position, given ordered levels.
+
+        This exercises the helper with levels ordered the way both callers now
+        order them. It does not by itself prove the caller orders them: that is
+        covered behaviourally by the mirrored-primary test below, which passes
+        raw alphabetical levels, and textually by
+        ``test_alternative_script_orders_levels_reference_first``.
+        """
+
+        levels = ("control", "treated", "untreated")
+        for script in ("deseq2.R", "alternative_de.R"):
+            for reference, test in (
+                ("control", "treated"),
+                ("treated", "control"),
+                ("untreated", "control"),
+            ):
+                with self.subTest(script=script, reference=reference, test=test):
+                    ordered = (reference,) + tuple(
+                        level for level in levels if level != reference
+                    )
+                    pairs = self._pairs(script, "all-pairs", ordered, reference, test)
+                    self.assertNotIn(f"{test}_vs_{reference}", pairs)
+                    self.assertNotIn(f"{reference}_vs_{test}", pairs)
+                    self.assertEqual(len(pairs), 2)
+                    self.assertEqual(len(set(pairs)), 2)
+
+    def test_mirrored_primary_is_dropped_even_from_unordered_levels(self) -> None:
+        # Defence in depth: the filter itself rejects both orientations, so a
+        # future caller that forgets to order the levels cannot reintroduce the
+        # duplicate contrast.
+        pairs = self._pairs(
+            "alternative_de.R", "all-pairs", ("control", "treated", "untreated"),
+            "treated", "control",
+        )
+        self.assertNotIn("treated_vs_control", pairs)
+        self.assertNotIn("control_vs_treated", pairs)
 
     def test_two_level_designs_expand_to_nothing_beyond_the_primary(self) -> None:
         for mode in ("vs-reference", "all-pairs"):

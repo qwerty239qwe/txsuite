@@ -340,7 +340,11 @@ def _resolve_parameter_paths(value: Any, source_dir: Path) -> Any:
 
 
 def _default_output_path(
-    uses: str, name: str, params: Mapping[str, Any], outdir: Path
+    uses: str,
+    name: str,
+    params: Mapping[str, Any],
+    outdir: Path,
+    inputs: Mapping[str, Any],
 ) -> Path | None:
     if name == "results":
         return outdir
@@ -351,8 +355,6 @@ def _default_output_path(
         ("bulk.salmon", "tx_counts"): outdir / "counts" / "transcript_counts.tsv",
         ("single-cell.alevin", "matrix"): outdir / "matrix" / "alevin.h5ad",
         ("bulk.star-reference", "star_index"): outdir / "star_index",
-        ("bulk.star-reference", "fasta_fai"): outdir / "reference" / "genome.fa.fai",
-        ("bulk.star-reference", "dict"): outdir / "reference" / "genome.dict",
         ("bulk.star-reference", "manifest"): outdir
         / "reference"
         / "reference-manifest.tsv",
@@ -363,6 +365,16 @@ def _default_output_path(
         / "deseq2"
         / "deseq2-results.tsv",
     }
+    if uses == "bulk.star-reference" and name in {"fasta_fai", "dict"}:
+        # GATK looks for <fasta>.fai and <fasta minus extension>.dict beside the
+        # reference, so these names follow the caller's FASTA rather than a
+        # canonical one. A FASTA produced by another stage has no name at plan
+        # time, which the caller reports rather than silently deferring.
+        fasta = inputs.get("fasta")
+        if not isinstance(fasta, Path):
+            return None
+        suffix = f"{fasta.name}.fai" if name == "fasta_fai" else f"{fasta.stem}.dict"
+        return outdir / "reference" / suffix
     if uses == "bulk.de" and name == "de_results":
         return outdir / f"{params['method']}-results.tsv"
     if uses == "bulk.de" and name == "contrast_index":
@@ -391,7 +403,7 @@ def _resolve_outputs(
         path = (
             _absolute(stage.outputs[name], source_dir)
             if explicit
-            else _default_output_path(spec.uses, name, params, outdir)
+            else _default_output_path(spec.uses, name, params, outdir, stage.inputs)
         )
         outputs[name] = PlannedOutput(
             stage_id=stage.id,

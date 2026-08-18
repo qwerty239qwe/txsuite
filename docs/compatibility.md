@@ -53,7 +53,11 @@ downloads run in CI.
   `variant_calling/` directory, which resolves for any sample count; a
   per-sample VCF contract would fail postflight on multi-sample runs.
 - `bulk.star-reference` builds indexes TxSuite owns; `bulk.rnavar` can reuse
-  them through optional inputs or let rnavar derive its own.
+  them through optional inputs or let rnavar derive its own. The index and
+  dictionary follow the caller's FASTA basename, which is how GATK locates them.
+- Native DAGs run under Apptainer only when their owned images are pullable from
+  a registry; Apptainer cannot use an image that `txsuite env build` produced
+  locally in the Docker daemon.
 - `bulk.salmon` and `single-cell.alevin` are native DAGs TxSuite owns end to
   end, so their artifact paths are known at plan time and need no release
   adapter. Their control plane and stubs are tested; real FASTQ runs are not.

@@ -121,6 +121,64 @@ class StarReferenceStageTests(unittest.TestCase):
                 validate_stage_parameters(spec, params)
 
 
+class ReferenceBasenameTests(unittest.TestCase):
+    """GATK resolves the index and dictionary from the reference basename.
+
+    Publishing them under a canonical name made the planner's job easy and made
+    the artifacts unusable: GATK given `--reference GRCh38.fa` looks for
+    `GRCh38.fa.fai` and `GRCh38.dict`, not `genome.*`. The preset hid this by
+    happening to name its placeholder `genome.fa`.
+    """
+
+    def _plan(self, fasta_name: str):
+        workflow = parse_project_config(
+            {
+                "schema_version": 1,
+                "project": {
+                    "id": "reference",
+                    "modality": "bulk",
+                    "output_root": "results",
+                },
+                "execution": {"profile": "docker", "resume": True},
+                "workflow": {
+                    "stages": [
+                        {
+                            "id": "ref",
+                            "uses": "bulk.star-reference",
+                            "inputs": {"fasta": fasta_name, "gtf": "genes.gtf"},
+                        }
+                    ]
+                },
+            },
+            source_path=Path("/work/workflow.toml"),
+        )
+        return plan_workflow(workflow, DEFAULT_CONFIG).stage("ref")
+
+    def test_index_names_follow_the_callers_fasta(self) -> None:
+        for fasta_name, fai, dictionary in (
+            ("genome.fa", "genome.fa.fai", "genome.dict"),
+            ("GRCh38.primary.fa", "GRCh38.primary.fa.fai", "GRCh38.primary.dict"),
+            ("data/hg38.fasta", "hg38.fasta.fai", "hg38.dict"),
+        ):
+            with self.subTest(fasta=fasta_name):
+                reference = self._plan(fasta_name)
+                self.assertEqual(
+                    reference.outputs["fasta_fai"].path,
+                    reference.outdir / "reference" / fai,
+                )
+                self.assertEqual(
+                    reference.outputs["dict"].path,
+                    reference.outdir / "reference" / dictionary,
+                )
+
+    def test_dict_name_drops_only_the_final_extension(self) -> None:
+        # GATK wants X.dict for X.fa; a multi-dot name must keep its inner dots.
+        reference = self._plan("Homo_sapiens.GRCh38.dna.fa")
+        self.assertEqual(
+            reference.outputs["dict"].path.name, "Homo_sapiens.GRCh38.dna.dict"
+        )
+
+
 class PackagedStarResourceTests(unittest.TestCase):
     def test_dag_and_image_recipe_are_packaged(self) -> None:
         nextflow_root = resources.files("txsuite.resources.nextflow")
@@ -132,11 +190,11 @@ class PackagedStarResourceTests(unittest.TestCase):
         processes = [line for line in text.splitlines() if line.startswith("process ")]
         self.assertEqual(len(processes), 4)
         self.assertEqual(text.count("stub:"), len(processes))
-        # The published index paths must stay deterministic; the planner
-        # hardcodes them because it cannot see the caller's FASTA filename.
-        self.assertIn("stageAs: 'genome.fa'", text)
-        self.assertIn("path 'genome.fa.fai', emit: fai", text)
-        self.assertIn("path 'genome.dict', emit: dict", text)
+        # GATK resolves the index and dictionary from the reference basename, so
+        # the DAG must keep the caller's FASTA name rather than a canonical one.
+        self.assertNotIn("stageAs: 'genome.fa'", text)
+        self.assertIn('path "${fasta}.fai", emit: fai', text)
+        self.assertIn('path "${fasta.baseName}.dict", emit: dict', text)
 
         self.assertTrue(
             resources.files("txsuite.resources.star").joinpath("Dockerfile").is_file()
