@@ -36,6 +36,7 @@ from txsuite.project import (
     scaffold_project_preset,
     select_stages,
 )
+from txsuite.reference import build_star_image
 from txsuite.runtime import TxSuiteError, format_command, run_command
 from txsuite.single_cell import (
     analysis_command,
@@ -79,6 +80,8 @@ def _parser() -> argparse.ArgumentParser:
             "trim",
             "alignment",
             "quantification",
+            "variant-calling",
+            "reference",
             "differential-expression",
         ),
     )
@@ -422,6 +425,7 @@ def _parser() -> argparse.ArgumentParser:
         choices=(
             "bulk-r",
             "salmon",
+            "star",
             "single-cell-python",
             "spatial-python",
             "cellranger",
@@ -1427,6 +1431,8 @@ def run(argv: list[str] | None = None) -> int:
                 build_bulk_r_image(tag, run_dir=run_dir)
             elif args.environment == "salmon":
                 build_salmon_image(tag, run_dir=run_dir)
+            elif args.environment == "star":
+                build_star_image(tag, run_dir=run_dir)
             elif args.environment == "single-cell-python":
                 build_single_cell_image(tag, run_dir=run_dir)
             else:

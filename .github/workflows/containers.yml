@@ -20,6 +20,8 @@ jobs:
             context: src/txsuite/resources/bulk_r
           - image: salmon
             context: src/txsuite/resources/salmon
+          - image: star
+            context: src/txsuite/resources/star
           - image: single-cell-python
             context: src/txsuite/resources/single_cell_python
           - image: spatial-python

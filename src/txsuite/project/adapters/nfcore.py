@@ -125,8 +125,27 @@ SCRNASEQ_4_2_0 = NfCoreAdapter(
     },
 )
 
+RNAVAR_1_3_0 = NfCoreAdapter(
+    name="nfcore-rnavar-1.3.0",
+    pipeline="nf-core/rnavar",
+    release="1.3.0",
+    artifacts={
+        "bulk.rnavar-results": ArtifactRule((".",), "directory"),
+        # rnavar writes one VCF per sample under variant_calling/<SAMPLE>/, so
+        # the directory is the artifact: a per-sample file pattern would match
+        # multiple paths and fail postflight on any multi-sample run.
+        "bulk.variant-calls": ArtifactRule(("variant_calling",), "directory"),
+        "qc.multiqc-report": ArtifactRule(
+            ("reports/multiqc/multiqc_report.html", "**/multiqc_report.html")
+        ),
+    },
+)
+
 NFCORE_ADAPTERS: Mapping[str, NfCoreAdapter] = MappingProxyType(
-    {adapter.name: adapter for adapter in (RNASEQ_3_26_0, SCRNASEQ_4_2_0)}
+    {
+        adapter.name: adapter
+        for adapter in (RNASEQ_3_26_0, SCRNASEQ_4_2_0, RNAVAR_1_3_0)
+    }
 )
 
 
@@ -333,6 +352,7 @@ __all__ = [
     "NfCoreAdapter",
     "NfCoreArtifactResolution",
     "RNASEQ_3_26_0",
+    "RNAVAR_1_3_0",
     "ResolvedNfCoreArtifact",
     "SCRNASEQ_4_2_0",
     "get_nfcore_adapter",

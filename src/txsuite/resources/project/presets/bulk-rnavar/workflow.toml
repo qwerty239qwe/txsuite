@@ -1,0 +1,37 @@
+schema_version = 1
+
+[project]
+id = "bulk_rnavar_example"
+modality = "bulk"
+output_root = "results"
+
+[execution]
+profile = "docker"
+resume = true
+
+[[workflow.stages]]
+id = "ref"
+uses = "bulk.star-reference"
+
+[workflow.stages.inputs]
+fasta = "data/genome.fa"
+gtf = "data/genes.gtf"
+
+[workflow.stages.params]
+read_length = 100
+
+[[workflow.stages]]
+id = "variants"
+uses = "bulk.rnavar"
+depends_on = ["ref"]
+
+[workflow.stages.inputs]
+samplesheet = "samplesheet.csv"
+star_index = "${ref.star_index}"
+fasta_fai = "${ref.fasta_fai}"
+dict = "${ref.dict}"
+
+[workflow.stages.params]
+fasta = "data/genome.fa"
+gtf = "data/genes.gtf"
+dbsnp = "data/dbsnp.vcf.gz"

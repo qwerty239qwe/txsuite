@@ -61,13 +61,16 @@ declared inputs, configuration, and required artifacts still match. Raw
 nf-core outputs are resolved after the producer succeeds; downstream symbolic
 inputs such as `${rnaseq.counts}` are never passed to a subprocess unresolved.
 
-Available presets are `bulk-rnaseq`, `bulk-salmon`, `scrnaseq`,
-`scrnaseq-alevin`, and `scrnaseq-pseudobulk`. The two quantification presets
-differ in backend, not in downstream stages: `bulk-rnaseq` and `scrnaseq` launch
-pinned nf-core pipelines, while `bulk-salmon` and `scrnaseq-alevin` run native
-TxSuite DAGs built on salmon and simpleaf/alevin-fry. The native DAGs quantify
-only — no trimming, alignment, or aggregated QC — and their artifact paths are
-known at plan time. Replace every placeholder input before running. See the
+Available presets are `bulk-rnaseq`, `bulk-salmon`, `bulk-rnavar`,
+`scrnaseq`, `scrnaseq-alevin`, and `scrnaseq-pseudobulk`. The quantification
+presets differ in backend, not in downstream stages: `bulk-rnaseq` and
+`scrnaseq` launch pinned nf-core pipelines, while `bulk-salmon` and
+`scrnaseq-alevin` run native TxSuite DAGs built on salmon and
+simpleaf/alevin-fry. The native DAGs quantify only — no trimming, alignment, or
+aggregated QC — and their artifact paths are known at plan time. `bulk-rnavar`
+is a different axis entirely: GATK short variant discovery through pinned
+nf-core/rnavar, with a reusable STAR reference built once by
+`bulk.star-reference`. Replace every placeholder input before running. See the
 [workflow schema](docs/workflow-schema.md),
 [run-bundle layout](docs/results-layout.md), and
 [automation guidance](docs/agent-workflows.md).
@@ -370,9 +373,9 @@ txsuite reference cache \
 Release configurations must use immutable `image@sha256:digest` references;
 `txsuite env verify-images` reports mutable tags and exits nonzero. See
 `docs/slurm.md`, `docs/compatibility.md`, and `docs/release.md` for cluster and
-release checks. The `containers` GitHub Actions workflow publishes all four
-owned images — `bulk-r`, `salmon`, `single-cell-python`, and `spatial-python` —
-to GHCR from version tags or a manual run.
+release checks. The `containers` GitHub Actions workflow publishes all five
+owned images — `bulk-r`, `salmon`, `star`, `single-cell-python`, and
+`spatial-python` — to GHCR from version tags or a manual run.
 
 ## Project documentation
 

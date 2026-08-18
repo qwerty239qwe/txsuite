@@ -44,11 +44,12 @@ remain external release blockers.
 
 - nf-core workflows use their own pinned process containers; TxSuite does not
   rebuild them.
-- TxSuite builds only the images it owns: `bulk-r`, `salmon`,
-  `single-cell-python`, and `spatial-python`. `salmon` is the one owned image
-  that runs a raw-data step rather than a downstream analysis; TxSuite owns it
-  because the native `bulk.salmon` and `single-cell.alevin` DAGs are its own
-  pipelines, not nf-core pipelines with their own pinned process containers.
+- TxSuite builds only the images it owns: `bulk-r`, `salmon`, `star`,
+  `single-cell-python`, and `spatial-python`. `salmon` and `star` are the owned
+  images that run raw-data steps rather than downstream analyses; TxSuite owns
+  them because the native `bulk.salmon`, `single-cell.alevin`, and
+  `bulk.star-reference` DAGs are its own pipelines, not nf-core pipelines with
+  their own pinned process containers.
 - Cell Ranger and Space Ranger are installed and licensed by the user; TxSuite
   only discovers and invokes them.
 - `txsuite env doctor`, `env list`, and `env build` form the environment API.
@@ -57,6 +58,9 @@ remain external release blockers.
   QC. nf-core/rnaseq also runs salmon internally, and its salmon settings are
   exposed on `bulk.rnaseq` through `pseudo_aligner`, `skip_alignment`, and
   `salmon_index`.
+- GATK RNA short variant discovery is delegated to pinned nf-core/rnavar rather
+  than reimplemented; `bulk.star-reference` exists because a STAR index is
+  expensive and shared between variant calling and alignment.
 - Docker is the workstation default and Apptainer is the HPC target.
 
 ## Configuration contract

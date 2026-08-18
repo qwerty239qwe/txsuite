@@ -27,6 +27,8 @@ class StageRegistryTests(unittest.TestCase):
         expected = (
             "bulk.rnaseq",
             "bulk.salmon",
+            "bulk.rnavar",
+            "bulk.star-reference",
             "bulk.de",
             "bulk.enrichment",
             "single-cell.scrnaseq",
@@ -39,7 +41,7 @@ class StageRegistryTests(unittest.TestCase):
         self.assertEqual(tuple(spec.uses for spec in specs), expected)
         self.assertEqual(get_stage_spec("bulk.de").id, "bulk.de")
         self.assertEqual(
-            tuple(spec.id for spec in list_stage_specs("bulk")), expected[:4]
+            tuple(spec.id for spec in list_stage_specs("bulk")), expected[:6]
         )
         with self.assertRaises(FrozenInstanceError):
             specs[0].maturity = "ready"  # type: ignore[misc]

@@ -13,7 +13,15 @@ from txsuite.bulk import (
     workflow_command,
 )
 
-from . import command_context, configured_image, input_path
+from txsuite.reference import star_reference_workflow_command
+from txsuite.variants import rnavar_workflow_command
+
+from . import (
+    command_context,
+    configured_image,
+    input_path,
+    optional_input_path as _optional_input_path,
+)
 
 
 def _optional_path(value: Any) -> Path | None:
@@ -53,6 +61,55 @@ def bulk_salmon_command(context: Mapping[str, Any] | object) -> list[str]:
         libtype=params.get("libtype", "A"),
         kmer_len=params.get("kmer_len", 31),
         gencode=params.get("gencode", False),
+        nextflow_config=_optional_path(params.get("nextflow_config")),
+        resume=resume,
+        check_inputs=check_inputs,
+    )
+
+
+def bulk_rnavar_command(context: Mapping[str, Any] | object) -> list[str]:
+    """Build the pinned nf-core/rnavar command for a registry context."""
+
+    config, inputs, params, outdir, resume, check_inputs = command_context(context)
+    return rnavar_workflow_command(
+        dict(config),
+        samplesheet=input_path(inputs, "samplesheet"),
+        outdir=outdir,
+        genome=params.get("genome"),
+        fasta=_optional_path(params.get("fasta")),
+        gtf=_optional_path(params.get("gtf")),
+        star_index=_optional_input_path(inputs, "star_index"),
+        fasta_fai=_optional_input_path(inputs, "fasta_fai"),
+        sequence_dictionary=_optional_input_path(inputs, "dict"),
+        dbsnp=_optional_path(params.get("dbsnp")),
+        known_indels=_optional_path(params.get("known_indels")),
+        skip_baserecalibration=params.get("skip_baserecalibration", False),
+        tools=tuple(params.get("tools", ())),
+        snpeff_cache=_optional_path(params.get("snpeff_cache")),
+        vep_cache=_optional_path(params.get("vep_cache")),
+        generate_gvcf=params.get("generate_gvcf", False),
+        params_file=_optional_path(params.get("params_file")),
+        nextflow_config=_optional_path(params.get("nextflow_config")),
+        resume=resume,
+        check_inputs=check_inputs,
+    )
+
+
+def bulk_star_reference_command(context: Mapping[str, Any] | object) -> list[str]:
+    """Build the native STAR/GATK reference-preparation DAG."""
+
+    config, inputs, params, outdir, resume, check_inputs = command_context(context)
+    return star_reference_workflow_command(
+        dict(config),
+        fasta=input_path(inputs, "fasta"),
+        gtf=input_path(inputs, "gtf"),
+        outdir=outdir,
+        read_length=params.get("read_length", 100),
+        sjdb_overhang=params.get("sjdb_overhang"),
+        star_image=params.get("image"),
+        threads=params.get("threads", 4),
+        memory_gb=params.get("memory_gb", 32),
+        genome_sa_index_nbases=params.get("genome_sa_index_nbases"),
         nextflow_config=_optional_path(params.get("nextflow_config")),
         resume=resume,
         check_inputs=check_inputs,
@@ -103,6 +160,8 @@ def bulk_enrichment_command(context: Mapping[str, Any] | object) -> list[str]:
 # Verbose aliases are useful to callers that distinguish factories from commands.
 build_bulk_rnaseq_command = bulk_rnaseq_command
 build_bulk_salmon_command = bulk_salmon_command
+build_bulk_star_reference_command = bulk_star_reference_command
+build_bulk_rnavar_command = bulk_rnavar_command
 build_bulk_de_command = bulk_de_command
 build_bulk_enrichment_command = bulk_enrichment_command
 rnaseq_command = bulk_rnaseq_command
@@ -115,10 +174,14 @@ __all__ = [
     "build_bulk_enrichment_command",
     "build_bulk_rnaseq_command",
     "build_bulk_salmon_command",
+    "build_bulk_rnavar_command",
+    "build_bulk_star_reference_command",
     "bulk_de_command",
     "bulk_enrichment_command",
     "bulk_rnaseq_command",
     "bulk_salmon_command",
+    "bulk_rnavar_command",
+    "bulk_star_reference_command",
     "de_command",
     "enrichment_stage_command",
     "rnaseq_command",

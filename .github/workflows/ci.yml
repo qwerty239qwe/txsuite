@@ -102,6 +102,21 @@ jobs:
           --salmon_image txsuite/salmon:stub
           --single_cell_image txsuite/single-cell-python:stub
       - run: test -f /tmp/txsuite-alevin-results/matrix/alevin.h5ad
+      - run: >-
+          nextflow run src/txsuite/resources/nextflow/bulk_star_reference.nf
+          -stub-run -profile local
+          -work-dir /tmp/txsuite-star-ref-work
+          --fasta /tmp/txsuite-salmon/genome.fa
+          --gtf /tmp/txsuite-salmon/genes.gtf
+          --outdir /tmp/txsuite-star-ref-results
+          --star_image txsuite/star:stub
+          --star_read_length 100
+          --star_sjdb_overhang 99
+      - run: |
+          test -s /tmp/txsuite-star-ref-results/star_index/SA
+          test -s /tmp/txsuite-star-ref-results/reference/genome.fa.fai
+          test -s /tmp/txsuite-star-ref-results/reference/genome.dict
+          grep -q 'sjdb_overhang	99' /tmp/txsuite-star-ref-results/reference/reference-manifest.tsv
       - run: mkdir -p /tmp/txsuite-cellranger-fastqs && touch /tmp/txsuite-cellranger-genome.fa /tmp/txsuite-cellranger-genes.gtf
       - run: >-
           nextflow run src/txsuite/resources/nextflow/single_cell_cellranger.nf

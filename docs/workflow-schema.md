@@ -49,7 +49,8 @@ Each `[[workflow.stages]]` has:
 
 Currently registered stage types are:
 
-- `bulk.rnaseq`, `bulk.salmon`, `bulk.de`, and `bulk.enrichment`;
+- `bulk.rnaseq`, `bulk.salmon`, `bulk.rnavar`, `bulk.star-reference`,
+  `bulk.de`, and `bulk.enrichment`;
 - `single-cell.scrnaseq`, `single-cell.alevin`, `single-cell.scanpy`,
   `single-cell.pseudobulk`, and `single-cell.pseudobulk-de`.
 
@@ -66,6 +67,42 @@ for `bulk.rnaseq` ahead of `bulk.de`; `single-cell.alevin` emits
 Use `txsuite project validate workflow.toml` instead of relying on this list:
 validation is also responsible for artifact types, required parameters,
 dependency cycles, backend compatibility, and future registry changes.
+
+## Variant calling and reference reuse
+
+`bulk.rnavar` launches the pinned nf-core/rnavar release for GATK4 RNA short
+variant discovery. Its `variants` output is the `variant_calling/` **directory**
+rather than a VCF file, because rnavar writes one VCF per sample and a
+file-level contract would match several paths and fail postflight on any
+multi-sample run.
+
+`bulk.star-reference` builds a STAR index, FASTA index, and sequence dictionary
+once from a genome FASTA and GTF. `bulk.rnavar` accepts `star_index`,
+`fasta_fai`, and `dict` as **optional inputs**, so a project can reuse them:
+
+```toml
+[[workflow.stages]]
+id = "variants"
+uses = "bulk.rnavar"
+depends_on = ["ref"]
+
+[workflow.stages.inputs]
+samplesheet = "samplesheet.csv"
+star_index = "${ref.star_index}"
+```
+
+Omit them and rnavar derives its own references per run. Optional inputs are
+validated exactly like required ones when supplied — artifact types must match
+and a reference implies a dependency edge — but a stage plans successfully
+without them. Unknown input names are still rejected.
+
+Reference preparation records the read length and splice-junction overhang in
+`reference/reference-manifest.tsv`, because an index built for the wrong
+overhang runs without complaint while losing junction sensitivity.
+
+TxSuite rejects two rnavar combinations before Nextflow starts: base
+recalibration without `dbsnp` or `known_indels`, and an annotation tool without
+its cache. Both otherwise surface only after alignment has already run.
 
 ## Contrast expansion
 
@@ -136,6 +173,7 @@ Create a safe, non-overwriting scaffold with:
 ```bash
 txsuite project init --preset bulk-rnaseq my-project
 txsuite project init --preset bulk-salmon my-project
+txsuite project init --preset bulk-rnavar my-project
 txsuite project init --preset scrnaseq my-project
 txsuite project init --preset scrnaseq-alevin my-project
 txsuite project init --preset scrnaseq-pseudobulk my-project

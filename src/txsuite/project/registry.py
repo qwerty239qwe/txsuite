@@ -13,12 +13,15 @@ from typing import Any
 from txsuite.bulk import CONTRAST_MODES, PSEUDO_ALIGNERS, SALMON_LIBTYPES
 from txsuite.runtime import TxSuiteError
 from txsuite.single_cell import ALEVIN_CHEMISTRIES, ALEVIN_RESOLUTIONS
+from txsuite.variants import ANNOTATION_TOOLS
 
 from .adapters.bulk import (
     bulk_de_command,
     bulk_enrichment_command,
     bulk_rnaseq_command,
+    bulk_rnavar_command,
     bulk_salmon_command,
+    bulk_star_reference_command,
 )
 from .adapters.single_cell import (
     alevin_command,
@@ -74,6 +77,7 @@ class StageSpec:
     output_policies: Mapping[str, OutputPolicy | Mapping[str, Any]] = field(
         default_factory=dict
     )
+    optional_inputs: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         canonical = self.id if self.uses is None else self.uses
@@ -87,6 +91,14 @@ class StageSpec:
             raise TypeError("StageSpec command_factory must be callable")
         object.__setattr__(self, "uses", canonical)
         object.__setattr__(self, "inputs", _freeze_contract(self.inputs, "input"))
+        optional_inputs = _freeze_contract(self.optional_inputs, "optional input")
+        overlapping = sorted(set(optional_inputs) & set(self.inputs))
+        if overlapping:
+            raise ValueError(
+                "Stage inputs cannot be both required and optional: "
+                + ", ".join(overlapping)
+            )
+        object.__setattr__(self, "optional_inputs", optional_inputs)
         outputs = _freeze_contract(self.outputs, "output")
         object.__setattr__(self, "outputs", outputs)
         object.__setattr__(
@@ -98,6 +110,12 @@ class StageSpec:
         object.__setattr__(self, "validators", MappingProxyType(dict(self.validators)))
         object.__setattr__(self, "required_executables", tuple(self.required_executables))
         object.__setattr__(self, "required_images", tuple(self.required_images))
+
+    @property
+    def accepted_inputs(self) -> Mapping[str, str]:
+        """Every input this stage understands, required and optional alike."""
+
+        return MappingProxyType({**self.inputs, **self.optional_inputs})
 
     def build_command(self, context: Mapping[str, Any] | object) -> list[str]:
         """Validate/default context parameters, then invoke the command factory."""
@@ -216,6 +234,24 @@ def _optional_choice(*choices: str) -> ParameterValidator:
         return value
 
     return validate
+
+
+def _annotation_tools(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str) or not isinstance(value, (list, tuple)):
+        raise ValueError("must be a list of annotation tool names")
+    tools = tuple(str(item) for item in value)
+    unknown = sorted(set(tools) - set(ANNOTATION_TOOLS))
+    if unknown:
+        raise ValueError(f"must contain only: {', '.join(ANNOTATION_TOOLS)}")
+    if len(set(tools)) != len(tools):
+        raise ValueError("must not repeat a tool")
+    return tools
+
+
+def _optional_positive_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    return _positive_int(value)
 
 
 def _optional_string(value: Any) -> str | None:
@@ -382,6 +418,106 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         required_executables=("nextflow",),
         required_images=("images.salmon",),
         command_factory=bulk_salmon_command,
+        supports_resume=True,
+    ),
+    StageSpec(
+        id="bulk.rnavar",
+        modality="bulk",
+        maturity="selected",
+        inputs={"samplesheet": "bulk.rnavar-samplesheet"},
+        # Supplying a prebuilt reference is optional: rnavar derives whatever is
+        # missing, so a project can wire ${ref.star_index} from
+        # bulk.star-reference to avoid rebuilding it on every run, or omit it.
+        optional_inputs={
+            "star_index": "bulk.star-index",
+            "fasta_fai": "reference.fasta-index",
+            "dict": "reference.sequence-dictionary",
+        },
+        outputs={
+            "results": "bulk.rnavar-results",
+            "variants": "bulk.variant-calls",
+            "multiqc_report": "qc.multiqc-report",
+        },
+        output_policies={
+            "results": OutputPolicy("directory", non_empty=True),
+            "variants": OutputPolicy("directory", non_empty=True),
+            "multiqc_report": OutputPolicy("file", non_empty=True),
+        },
+        defaults={
+            "genome": None,
+            "fasta": None,
+            "gtf": None,
+            "dbsnp": None,
+            "known_indels": None,
+            "skip_baserecalibration": False,
+            "tools": (),
+            "snpeff_cache": None,
+            "vep_cache": None,
+            "generate_gvcf": False,
+            "params_file": None,
+            "nextflow_config": None,
+        },
+        validators={
+            "genome": _optional_string,
+            "fasta": _optional_path,
+            "gtf": _optional_path,
+            "dbsnp": _optional_path,
+            "known_indels": _optional_path,
+            "skip_baserecalibration": _boolean,
+            "tools": _annotation_tools,
+            "snpeff_cache": _optional_path,
+            "vep_cache": _optional_path,
+            "generate_gvcf": _boolean,
+            "params_file": _optional_path,
+            "nextflow_config": _optional_path,
+        },
+        required_executables=("nextflow",),
+        command_factory=bulk_rnavar_command,
+        supports_resume=True,
+    ),
+    StageSpec(
+        id="bulk.star-reference",
+        modality="bulk",
+        maturity="ready",
+        inputs={
+            "fasta": "reference.genome-fasta",
+            "gtf": "reference.annotation-gtf",
+        },
+        outputs={
+            "results": "bulk.star-reference-results",
+            "star_index": "bulk.star-index",
+            "fasta_fai": "reference.fasta-index",
+            "dict": "reference.sequence-dictionary",
+            "manifest": "reference.index-manifest",
+        },
+        output_policies={
+            "results": OutputPolicy("directory", non_empty=True),
+            "star_index": OutputPolicy("directory", non_empty=True),
+            "fasta_fai": OutputPolicy("file", non_empty=True),
+            "dict": OutputPolicy("file", non_empty=True),
+            "manifest": OutputPolicy("file", non_empty=True),
+        },
+        defaults={
+            "image": None,
+            "read_length": 100,
+            "sjdb_overhang": None,
+            "threads": 4,
+            "memory_gb": 32,
+            "genome_sa_index_nbases": None,
+            "nextflow_config": None,
+        },
+        validators={
+            "image": _optional_string,
+            "read_length": _positive_int,
+            "sjdb_overhang": _optional_positive_int,
+            "threads": _positive_int,
+            "memory_gb": _positive_int,
+            "genome_sa_index_nbases": _optional_positive_int,
+            "nextflow_config": _optional_path,
+        },
+        required_executables=("nextflow",),
+        required_images=("images.star",),
+        command_factory=bulk_star_reference_command,
         supports_resume=True,
     ),
     StageSpec(

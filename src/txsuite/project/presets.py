@@ -55,6 +55,16 @@ PROJECT_PRESETS: tuple[ProjectPreset, ...] = (
         ),
     ),
     ProjectPreset(
+        name="bulk-rnavar",
+        description="GATK RNA short variant discovery with a reusable STAR reference",
+        modality="bulk",
+        files=(
+            "README.md",
+            "samplesheet.csv",
+            "workflow.toml",
+        ),
+    ),
+    ProjectPreset(
         name="scrnaseq",
         description="nf-core/scRNA-seq quantification followed by Scanpy analysis",
         modality="single-cell",

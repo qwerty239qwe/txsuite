@@ -36,6 +36,22 @@ TOOLS = (
     ),
     Tool(
         "bulk",
+        "variant-calling",
+        "nf-core/rnavar (GATK4 RNA short variants)",
+        "nextflow",
+        "upstream containers",
+        "selected",
+    ),
+    Tool(
+        "bulk",
+        "reference",
+        "STAR genomeGenerate + GATK CreateSequenceDictionary",
+        "nextflow",
+        "txsuite/star",
+        "ready",
+    ),
+    Tool(
+        "bulk",
         "differential-expression",
         "DESeq2",
         "docker",

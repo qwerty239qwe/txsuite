@@ -7,9 +7,13 @@ Validated versions for the 0.1 development line:
 | TxSuite CLI | Python 3.11–3.13 | CI |
 | Project workflow schema | v1 | runtime and packaged JSON Schema parity tested |
 | Project execution profiles | Docker, Apptainer | schema-supported |
-| Project presets | bulk-rnaseq, bulk-salmon, scrnaseq, scrnaseq-alevin, scrnaseq-pseudobulk | packaged-resource and planning tests |
+| Project presets | bulk-rnaseq, bulk-salmon, bulk-rnavar, scrnaseq, scrnaseq-alevin, scrnaseq-pseudobulk | packaged-resource and planning tests |
 | nf-core/rnaseq | 3.26.0 | launcher tested; external raw-data smoke pending |
 | nf-core/scrnaseq | 4.2.0 | launcher tested; external raw-data smoke pending |
+| nf-core/rnavar | 1.3.0 | launcher and artifact adapter tested; pipeline never run in CI |
+| GATK | 4.6.2.0 | packaged in `txsuite/star`; sequence dictionary only |
+| STAR | 2.7.11b | native reference DAG; stub tested in CI |
+| samtools | 1.24 | FASTA indexing in the reference DAG |
 | Cell Ranger (native `mkref`+`count` DAG) | user-installed | stub DAG tested in CI; licensed smoke pending |
 | Salmon (native `index`+`quant` DAG) | 2.5.1 | stub DAG tested in CI; real FASTQ smoke pending |
 | simpleaf (native `index`+`quant` DAG) | 0.28.0 | stub DAG tested in CI; real FASTQ smoke pending |
@@ -45,6 +49,11 @@ downloads run in CI.
   `vs-reference` or `all-pairs`, capped at 50 comparisons. The comparison-set
   logic is unit-tested; the expanded DESeq2, edgeR, and limma runs themselves
   are covered only by the existing single-contrast container smokes.
+- `bulk.rnavar` is a pinned nf-core launcher. Its `variants` artifact is the
+  `variant_calling/` directory, which resolves for any sample count; a
+  per-sample VCF contract would fail postflight on multi-sample runs.
+- `bulk.star-reference` builds indexes TxSuite owns; `bulk.rnavar` can reuse
+  them through optional inputs or let rnavar derive its own.
 - `bulk.salmon` and `single-cell.alevin` are native DAGs TxSuite owns end to
   end, so their artifact paths are known at plan time and need no release
   adapter. Their control plane and stubs are tested; real FASTQ runs are not.
