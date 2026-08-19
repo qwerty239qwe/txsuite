@@ -59,14 +59,22 @@ class OptionalInputContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _spec(optional_inputs={"index": "bulk.*-index"})
 
-    def test_existing_stages_declare_no_optional_inputs(self) -> None:
-        for uses in ("bulk.rnaseq", "bulk.de", "single-cell.scanpy"):
+    def test_stages_without_optional_inputs_are_unaffected(self) -> None:
+        for uses in ("bulk.rnaseq", "bulk.de", "single-cell.pseudobulk"):
             with self.subTest(uses=uses):
                 spec = get_stage_spec(uses)
                 self.assertEqual(dict(spec.optional_inputs), {})
-                self.assertEqual(
-                    dict(spec.accepted_inputs), dict(spec.inputs)
-                )
+                self.assertEqual(dict(spec.accepted_inputs), dict(spec.inputs))
+
+    def test_stages_that_use_optional_inputs_declare_them(self) -> None:
+        for uses, expected in (
+            ("bulk.rnavar", {"star_index", "fasta_fai", "dict"}),
+            ("single-cell.scanpy", {"metadata"}),
+        ):
+            with self.subTest(uses=uses):
+                spec = get_stage_spec(uses)
+                self.assertEqual(set(spec.optional_inputs), expected)
+                self.assertFalse(set(spec.inputs) & expected)
 
 
 class OptionalInputPlanningTests(unittest.TestCase):

@@ -68,6 +68,30 @@ Use `txsuite project validate workflow.toml` instead of relying on this list:
 validation is also responsible for artifact types, required parameters,
 dependency cycles, backend compatibility, and future registry changes.
 
+## Batch integration
+
+`single-cell.scanpy` can build the neighbor graph, clusters, and UMAP from
+Harmony-corrected principal components:
+
+```toml
+[workflow.stages.inputs]
+input = "${quantify.matrix}"
+metadata = "cell-metadata.tsv"   # optional
+
+[workflow.stages.params]
+integration = "harmony"
+batch_column = "batch"
+```
+
+`metadata` is an optional input: supply a cell-metadata TSV keyed by
+`barcode_column` when the batch assignment lives outside the matrix, or omit it
+when the column is already in the matrix's `obs`. `integration = "harmony"`
+requires `batch_column`, and the original PCA, normalized expression, and raw
+counts are left untouched.
+
+Harmony is opt-in because it can remove real biology when batch and condition
+are confounded. Default is `integration = "none"`.
+
 ## Genome alignment
 
 `bulk.align` runs STAR two-pass against a prebuilt index and emits sorted BAMs,

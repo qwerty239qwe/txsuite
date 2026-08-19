@@ -13,7 +13,11 @@ from typing import Any
 from txsuite.alignment import STRANDEDNESS
 from txsuite.bulk import CONTRAST_MODES, PSEUDO_ALIGNERS, SALMON_LIBTYPES
 from txsuite.runtime import TxSuiteError
-from txsuite.single_cell import ALEVIN_CHEMISTRIES, ALEVIN_RESOLUTIONS
+from txsuite.single_cell import (
+    ALEVIN_CHEMISTRIES,
+    ALEVIN_RESOLUTIONS,
+    INTEGRATION_METHODS,
+)
 from txsuite.variants import ANNOTATION_TOOLS
 
 from .adapters.bulk import (
@@ -276,6 +280,12 @@ def _identifier(value: Any) -> str:
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", value):
         raise ValueError("must be a simple column name")
     return value
+
+
+def _optional_identifier(value: Any) -> str | None:
+    if value is None:
+        return None
+    return _identifier(value)
 
 
 def _factor_level(value: Any) -> str:
@@ -726,6 +736,9 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         modality="single-cell",
         maturity="ready",
         inputs={"input": "single-cell.matrix"},
+        # Cell metadata is optional because the batch column may already be
+        # present in the matrix's obs; analysis_command mounts it only when given.
+        optional_inputs={"metadata": "single-cell.cell-metadata"},
         outputs={"h5ad": "single-cell.h5ad"},
         output_policies={"h5ad": OutputPolicy("file", non_empty=True)},
         defaults={
@@ -734,6 +747,9 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
             "min_cells": 3,
             "max_mito_pct": 20.0,
             "resolution": 1.0,
+            "integration": "none",
+            "batch_column": None,
+            "barcode_column": "barcode",
         },
         validators={
             **_IMAGE_OPTION,
@@ -741,6 +757,9 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
             "min_cells": _non_negative_int,
             "max_mito_pct": _percentage,
             "resolution": _positive_number,
+            "integration": _choice(*INTEGRATION_METHODS),
+            "batch_column": _optional_identifier,
+            "barcode_column": _identifier,
         },
         required_executables=("docker",),
         required_images=("images.single_cell_python",),

@@ -27,7 +27,7 @@ Validated versions for the 0.1 development line:
 | limma | 3.68.4 / Bioconductor 3.23 | formula-capable voom Docker smoke passed |
 | clusterProfiler | 4.20.0 / Bioconductor 3.23 | GMT ORA and GSEA smokes passed |
 | Scanpy | 1.12.2 / Python 3.12 | count-safe configurable stages, QC, Scrublet, batch-aware HVGs, Leiden markers, and grouped pseudobulk Docker smoke passed |
-| Harmonypy | 2.0.0 | PCA integration Docker smoke passed |
+| Harmonypy | 2.0.0 | PCA integration Docker smoke passed; reachable from `single-cell.scanpy` |
 | SpatialData | 0.8.0 | synthetic Docker smoke passed |
 | spatialdata-io | 0.7.1 | synthetic Docker smoke passed |
 | Squidpy | 1.8.3 | synthetic Docker smoke passed |
