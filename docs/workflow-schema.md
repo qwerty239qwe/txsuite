@@ -96,9 +96,14 @@ genesets = "${genesets.gmt}"
 The emitted GMT is the same `gene-sets.gmt` artifact type a hand-supplied file
 uses, so ORA and GSEA both keep running through clusterProfiler on one
 collection. `keytype` must match the identifiers in the differential-expression
-table; the members are translated into that namespace and `id-mapping.tsv`
-records how many were lost, failing below `min_mapped_fraction` rather than
-enriching on a fragment of the genes.
+table.
+
+Each source returns members in its own namespace — KEGG in Entrez, GO in
+UniProt, Reactome in gene symbols — so each is translated from *its own* type
+into `keytype`, not from a single assumed one. `id-mapping.tsv` reports the
+native type and the mapped fraction per source, and the stage fails when any
+single source falls below `min_mapped_fraction`. Checking per source matters:
+one source mapping nothing can still sit above a combined average.
 
 **This is the only stage that uses the network at run time.** It is separate for
 exactly that reason: the collection becomes an ordinary artifact, so every

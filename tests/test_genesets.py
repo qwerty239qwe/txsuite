@@ -188,8 +188,8 @@ class GenesetArtifactTests(unittest.TestCase):
         return self.module.write_outputs(
             self.root / "out",
             collections,
-            counts=counts or {"input": 3, "mapped": 3},
-            versions={"go": "go"},
+            counts=counts or {"go": {"input": 3, "mapped": 3}},
+            sources_used={"go": "go"},
             parameters={"sources": ["go"], "keytype": keytype},
             biodbs_version="0.4.1",
             min_mapped_fraction=floor,
@@ -221,26 +221,63 @@ class GenesetArtifactTests(unittest.TestCase):
         with self.assertRaises(self.module.GeneSetError):
             self.module.render_gmt({**_collection("go", "GO:2", "empty", [])})
 
-    def test_translation_drops_unmapped_members_and_counts_them(self) -> None:
+    def test_each_source_is_translated_from_its_own_namespace(self) -> None:
+        # biodbs returns KEGG as Entrez, GO as UniProt and Reactome as symbols.
+        # Translating all three as symbols silently yields sets that match
+        # nothing, so the mapping is keyed by source.
         collections = {
-            **_collection("kegg", "hsa1", "one", ["TP53", "BRCA1"]),
-            **_collection("kegg", "hsa2", "two", ["NOPE"]),
+            **_collection("kegg", "hsa1", "one", ["7157", "672"]),
+            **_collection("go", "GO:1", "two", ["P04637"]),
+            **_collection("reactome", "R-HSA-1", "three", ["TP53"]),
         }
         translated, counts = self.module.apply_translation(
-            collections, {"TP53": "7157", "BRCA1": "672"}
+            collections,
+            {
+                "kegg": {"7157": "ENSG00000141510"},
+                "go": {"P04637": "ENSG00000141510"},
+                # reactome absent: already in the requested namespace
+            },
         )
-        self.assertEqual(counts, {"input": 3, "mapped": 2})
-        self.assertEqual(translated["kegg:hsa1"]["genes"], ["672", "7157"])
-        # An untranslated identifier would never match the DE table, so it is
-        # dropped rather than passed through in the wrong namespace.
-        self.assertEqual(translated["kegg:hsa2"]["genes"], [])
+        self.assertEqual(translated["kegg:hsa1"]["genes"], ["ENSG00000141510"])
+        self.assertEqual(translated["go:GO:1"]["genes"], ["ENSG00000141510"])
+        self.assertEqual(translated["reactome:R-HSA-1"]["genes"], ["TP53"])
+        self.assertEqual(counts["kegg"], {"input": 2, "mapped": 1})
+        self.assertEqual(counts["go"], {"input": 1, "mapped": 1})
+        self.assertEqual(counts["reactome"], {"input": 1, "mapped": 1})
+
+    def test_source_native_id_types_match_what_biodbs_returns(self) -> None:
+        self.assertEqual(
+            self.module._SOURCE_ID_TYPE,
+            {
+                "go": "uniprot_gn_id",
+                "kegg": "entrezgene_id",
+                "reactome": "external_gene_name",
+            },
+        )
+
+    def test_one_broken_source_fails_even_when_the_others_carry_the_average(self) -> None:
+        # A global floor alone would pass this: 210/310 overall is 68%, while
+        # KEGG contributed nothing at all.
+        with self.assertRaisesRegex(self.module.GeneSetError, "kegg: only 0/100"):
+            self._write(
+                _collection("kegg", "hsa1", "one", ["A"]),
+                counts={
+                    "kegg": {"input": 100, "mapped": 0},
+                    "go": {"input": 210, "mapped": 210},
+                },
+                keytype="ensembl",
+            )
 
     def test_a_poor_mapping_rate_fails_instead_of_enriching_on_a_fragment(self) -> None:
         collections = _collection("kegg", "hsa1", "one", ["A"])
         with self.assertRaisesRegex(self.module.GeneSetError, "below the"):
-            self._write(collections, counts={"input": 100, "mapped": 20}, keytype="entrez")
+            self._write(
+                collections,
+                counts={"kegg": {"input": 100, "mapped": 20}},
+                keytype="entrez",
+            )
         written = self._write(
-            collections, counts={"input": 100, "mapped": 80}, keytype="entrez"
+            collections, counts={"kegg": {"input": 100, "mapped": 80}}, keytype="entrez"
         )
         self.assertTrue(written["gmt"].is_file())
 
@@ -253,21 +290,21 @@ class GenesetArtifactTests(unittest.TestCase):
         self.assertEqual(record["terms"], 1)
         self.assertEqual(record["parameters"]["keytype"], "symbol")
 
-    def test_mapping_report_records_the_loss(self) -> None:
+    def test_mapping_report_records_the_loss_per_source(self) -> None:
         written = self._write(
             _collection("kegg", "hsa1", "one", ["A"]),
-            counts={"input": 200, "mapped": 150},
+            counts={"kegg": {"input": 200, "mapped": 150}},
             keytype="entrez",
         )
-        rows = dict(
+        rows = [
             line.split("\t")
-            for line in written["mapping"].read_text(encoding="utf-8").splitlines()[1:]
+            for line in written["mapping"].read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(
+            rows[0],
+            ["source", "native_id_type", "terms", "input", "mapped", "unmapped", "fraction"],
         )
-        self.assertEqual(rows["input_identifiers"], "200")
-        self.assertEqual(rows["mapped_identifiers"], "150")
-        self.assertEqual(rows["unmapped_identifiers"], "50")
-        self.assertEqual(rows["mapped_fraction"], "0.7500")
-        self.assertEqual(rows["terms_kegg"], "1")
+        self.assertEqual(rows[1], ["kegg", "entrezgene_id", "1", "200", "150", "50", "0.7500"])
 
     def test_the_script_does_not_import_biodbs_at_module_scope(self) -> None:
         # Keeps the pure half testable without the dependency, and keeps the

@@ -33,6 +33,15 @@ _BIOMART_ATTRIBUTE = {
     "ensembl": "ensembl_gene_id",
     "entrez": "entrezgene_id",
 }
+# Each source returns members in its own namespace -- biodbs documents KEGG as
+# Entrez, GO (QuickGO) as UniProt, and Reactome as gene symbols. Translating
+# every source as if it were symbols silently produces a collection that never
+# matches the differential-expression table.
+_SOURCE_ID_TYPE = {
+    "go": "uniprot_gn_id",
+    "kegg": "entrezgene_id",
+    "reactome": "external_gene_name",
+}
 _BIOMART_DATASET = {
     "human": "hsapiens_gene_ensembl",
     "mouse": "mmusculus_gene_ensembl",
@@ -91,24 +100,22 @@ def fetch_collections(
     return collections, versions
 
 
-def translate_symbols(
-    symbols: list[str], *, keytype: str, species: str
+def translate_members(
+    identifiers: list[str], *, from_type: str, to_type: str, species: str
 ) -> dict[str, str]:
-    """Map fetched gene identifiers into ``keytype``. Networked."""
+    """Map identifiers from one namespace to another. Networked."""
 
     from biodbs import biomart_convert_ids
 
-    attribute = _BIOMART_ATTRIBUTE[keytype]
     dataset = _BIOMART_DATASET[species]
     try:
         converted = biomart_convert_ids(
-            ids=symbols,
-            from_type="external_gene_name",
-            to_type=attribute,
-            dataset=dataset,
+            ids=identifiers, from_type=from_type, to_type=to_type, dataset=dataset
         )
     except Exception as exc:  # noqa: BLE001
-        raise GeneSetError(f"gene identifier translation failed: {exc}") from exc
+        raise GeneSetError(
+            f"translation from {from_type} to {to_type} failed: {exc}"
+        ) from exc
     frame = converted.to_pandas() if hasattr(converted, "to_pandas") else converted
     mapping: dict[str, str] = {}
     for row in frame.itertuples(index=False):
@@ -119,29 +126,42 @@ def translate_symbols(
 
 
 def apply_translation(
-    collections: dict[str, dict], mapping: dict[str, str]
-) -> tuple[dict[str, dict], dict[str, int]]:
-    """Rewrite gene members through ``mapping``, counting what was lost.
+    collections: dict[str, dict], mappings: dict[str, dict[str, str]]
+) -> tuple[dict[str, dict], dict[str, dict[str, int]]]:
+    """Rewrite members through each source's own mapping, counting the losses.
 
-    Unmapped members are dropped rather than passed through: leaving an
-    untranslated identifier in a collection keyed by another namespace would
-    silently never match the differential-expression table.
+    ``mappings`` is keyed by source, because the namespace a source returns is a
+    property of that source. An unmapped member is dropped rather than passed
+    through: keeping an identifier from the wrong namespace would look like a
+    gene set member and never match anything.
     """
 
     translated: dict[str, dict] = {}
-    seen: set[str] = set()
-    mapped: set[str] = set()
+    seen: dict[str, set[str]] = {}
+    mapped: dict[str, set[str]] = {}
     for key, record in collections.items():
+        source = record["source"]
+        mapping = mappings.get(source)
+        seen.setdefault(source, set())
+        mapped.setdefault(source, set())
         members = []
         for gene in record["genes"]:
-            seen.add(gene)
+            seen[source].add(gene)
+            if mapping is None:  # already in the requested namespace
+                mapped[source].add(gene)
+                members.append(gene)
+                continue
             target = mapping.get(gene)
             if target is None:
                 continue
-            mapped.add(gene)
+            mapped[source].add(gene)
             members.append(target)
         translated[key] = {**record, "genes": sorted(set(members))}
-    return translated, {"input": len(seen), "mapped": len(mapped)}
+    counts = {
+        source: {"input": len(seen[source]), "mapped": len(mapped[source])}
+        for source in seen
+    }
+    return translated, counts
 
 
 def render_gmt(collections: dict[str, dict]) -> str:
@@ -168,23 +188,33 @@ def write_outputs(
     outdir: Path,
     collections: dict[str, dict],
     *,
-    counts: dict[str, int],
-    versions: dict[str, str],
+    counts: dict[str, dict[str, int]],
+    sources_used: dict[str, str],
     parameters: dict[str, object],
     biodbs_version: str,
     min_mapped_fraction: float,
     fetched_at: str,
 ) -> dict[str, Path]:
-    """Write the GMT, the mapping report, and the provenance record."""
+    """Write the GMT, the per-source mapping report, and the provenance record."""
 
-    total, mapped = counts.get("input", 0), counts.get("mapped", 0)
+    total = sum(entry["input"] for entry in counts.values())
+    mapped = sum(entry["mapped"] for entry in counts.values())
     fraction = 1.0 if total == 0 else mapped / total
-    if total and fraction < min_mapped_fraction:
-        raise GeneSetError(
-            f"only {mapped}/{total} gene identifiers ({fraction:.1%}) mapped to "
-            f"{parameters['keytype']}; below the {min_mapped_fraction:.0%} floor. "
-            "Check that keytype matches the differential-expression table"
-        )
+    # Checked per source as well as overall: one broken namespace among three
+    # can stay above a global floor while contributing nothing.
+    for source in sorted(counts):
+        entry = counts[source]
+        if not entry["input"]:
+            continue
+        source_fraction = entry["mapped"] / entry["input"]
+        if source_fraction < min_mapped_fraction:
+            raise GeneSetError(
+                f"{source}: only {entry['mapped']}/{entry['input']} identifiers "
+                f"({source_fraction:.1%}) mapped to {parameters['keytype']}, below "
+                f"the {min_mapped_fraction:.0%} floor. {source} returns "
+                f"{_SOURCE_ID_TYPE.get(source, 'unknown')} identifiers; check that "
+                "keytype matches the differential-expression table"
+            )
 
     outdir.mkdir(parents=True, exist_ok=True)
     written = {
@@ -199,21 +229,34 @@ def write_outputs(
         per_source[record["source"]] = per_source.get(record["source"], 0) + 1
     with written["mapping"].open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
-        writer.writerow(["metric", "value"])
-        writer.writerow(["keytype", parameters["keytype"]])
-        writer.writerow(["input_identifiers", total])
-        writer.writerow(["mapped_identifiers", mapped])
-        writer.writerow(["unmapped_identifiers", total - mapped])
-        writer.writerow(["mapped_fraction", f"{fraction:.4f}"])
-        for source in sorted(per_source):
-            writer.writerow([f"terms_{source}", per_source[source]])
+        writer.writerow(
+            ["source", "native_id_type", "terms", "input", "mapped", "unmapped", "fraction"]
+        )
+        for source in sorted(counts):
+            entry = counts[source]
+            unmapped = entry["input"] - entry["mapped"]
+            ratio = 1.0 if not entry["input"] else entry["mapped"] / entry["input"]
+            writer.writerow(
+                [
+                    source,
+                    _SOURCE_ID_TYPE.get(source, "unknown"),
+                    per_source.get(source, 0),
+                    entry["input"],
+                    entry["mapped"],
+                    unmapped,
+                    f"{ratio:.4f}",
+                ]
+            )
 
     written["provenance"].write_text(
         json.dumps(
             {
                 "fetched_at": fetched_at,
                 "biodbs_version": biodbs_version,
-                "sources": versions,
+                # The APIs do not expose a release identifier, so this records
+                # which source produced each collection, not a pinned version.
+                "sources": sources_used,
+                "source_id_types": {s: _SOURCE_ID_TYPE.get(s, "unknown") for s in counts},
                 "parameters": parameters,
                 "terms": sum(per_source.values()),
                 "mapped_fraction": round(fraction, 4),
@@ -256,16 +299,28 @@ def main(argv: list[str] | None = None) -> int:
             min_size=arguments.min_size,
             max_size=arguments.max_size,
         )
-        counts = {"input": 0, "mapped": 0}
-        if arguments.keytype != "symbol":
-            symbols = sorted({g for r in collections.values() for g in r["genes"]})
-            mapping = translate_symbols(
-                symbols, keytype=arguments.keytype, species=arguments.species
+        target = _BIOMART_ATTRIBUTE[arguments.keytype]
+        mappings: dict[str, dict[str, str]] = {}
+        for source in sources:
+            native = _SOURCE_ID_TYPE[source]
+            if native == target:
+                continue  # already in the requested namespace
+            members = sorted(
+                {
+                    gene
+                    for record in collections.values()
+                    if record["source"] == source
+                    for gene in record["genes"]
+                }
             )
-            collections, counts = apply_translation(collections, mapping)
-        else:
-            identifiers = {g for r in collections.values() for g in r["genes"]}
-            counts = {"input": len(identifiers), "mapped": len(identifiers)}
+            if members:
+                mappings[source] = translate_members(
+                    members,
+                    from_type=native,
+                    to_type=target,
+                    species=arguments.species,
+                )
+        collections, counts = apply_translation(collections, mappings)
 
         import biodbs
 
@@ -273,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
             arguments.outdir,
             collections,
             counts=counts,
-            versions=versions,
+            sources_used=versions,
             parameters={
                 "sources": sources,
                 "species": arguments.species,
