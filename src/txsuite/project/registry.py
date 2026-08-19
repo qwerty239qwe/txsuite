@@ -10,12 +10,14 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from txsuite.alignment import STRANDEDNESS
 from txsuite.bulk import CONTRAST_MODES, PSEUDO_ALIGNERS, SALMON_LIBTYPES
 from txsuite.runtime import TxSuiteError
 from txsuite.single_cell import ALEVIN_CHEMISTRIES, ALEVIN_RESOLUTIONS
 from txsuite.variants import ANNOTATION_TOOLS
 
 from .adapters.bulk import (
+    bulk_align_command,
     bulk_de_command,
     bulk_enrichment_command,
     bulk_rnaseq_command,
@@ -382,7 +384,11 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         id="bulk.salmon",
         modality="bulk",
         maturity="ready",
-        inputs={"samplesheet": "bulk.rnaseq-samplesheet"},
+        # A weaker contract than bulk.rnaseq-samplesheet: selective alignment
+        # infers strandedness, so no strandedness column is required. Typing it
+        # separately stops a salmon sheet being wired into bulk.rnaseq, where
+        # nf-core would reject it.
+        inputs={"samplesheet": "bulk.fastq-samplesheet"},
         outputs={
             "results": "bulk.salmon-results",
             "counts": "bulk.gene-counts",
@@ -418,6 +424,49 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         required_executables=("nextflow",),
         required_images=("images.salmon",),
         command_factory=bulk_salmon_command,
+        supports_resume=True,
+    ),
+    StageSpec(
+        id="bulk.align",
+        modality="bulk",
+        maturity="ready",
+        inputs={
+            "samplesheet": "bulk.fastq-samplesheet",
+            "star_index": "bulk.star-index",
+        },
+        outputs={
+            "results": "bulk.align-results",
+            "alignments": "bulk.alignment-bams",
+            "counts": "bulk.gene-counts",
+            "strandedness": "bulk.strandedness-report",
+            "logs": "bulk.alignment-logs",
+        },
+        output_policies={
+            "results": OutputPolicy("directory", non_empty=True),
+            "alignments": OutputPolicy("directory", non_empty=True),
+            "counts": OutputPolicy("file", non_empty=True),
+            "strandedness": OutputPolicy("file", non_empty=True),
+            "logs": OutputPolicy("directory", non_empty=True),
+        },
+        defaults={
+            "image": None,
+            "strandedness": "auto",
+            "two_pass": True,
+            "threads": 4,
+            "memory_gb": 32,
+            "nextflow_config": None,
+        },
+        validators={
+            "image": _optional_string,
+            "strandedness": _choice(*STRANDEDNESS),
+            "two_pass": _boolean,
+            "threads": _positive_int,
+            "memory_gb": _positive_int,
+            "nextflow_config": _optional_path,
+        },
+        required_executables=("nextflow",),
+        required_images=("images.star",),
+        command_factory=bulk_align_command,
         supports_resume=True,
     ),
     StageSpec(

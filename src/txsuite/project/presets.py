@@ -55,6 +55,17 @@ PROJECT_PRESETS: tuple[ProjectPreset, ...] = (
         ),
     ),
     ProjectPreset(
+        name="bulk-align",
+        description="STAR genome alignment and gene counts followed by differential expression",
+        modality="bulk",
+        files=(
+            "README.md",
+            "metadata.tsv",
+            "samplesheet.csv",
+            "workflow.toml",
+        ),
+    ),
+    ProjectPreset(
         name="bulk-rnavar",
         description="GATK RNA short variant discovery with a reusable STAR reference",
         modality="bulk",

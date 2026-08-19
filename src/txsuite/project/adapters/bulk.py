@@ -13,6 +13,7 @@ from txsuite.bulk import (
     workflow_command,
 )
 
+from txsuite.alignment import align_workflow_command
 from txsuite.reference import star_reference_workflow_command
 from txsuite.variants import rnavar_workflow_command
 
@@ -61,6 +62,26 @@ def bulk_salmon_command(context: Mapping[str, Any] | object) -> list[str]:
         libtype=params.get("libtype", "A"),
         kmer_len=params.get("kmer_len", 31),
         gencode=params.get("gencode", False),
+        nextflow_config=_optional_path(params.get("nextflow_config")),
+        resume=resume,
+        check_inputs=check_inputs,
+    )
+
+
+def bulk_align_command(context: Mapping[str, Any] | object) -> list[str]:
+    """Build the native STAR alignment and gene-counting DAG."""
+
+    config, inputs, params, outdir, resume, check_inputs = command_context(context)
+    return align_workflow_command(
+        dict(config),
+        samplesheet=input_path(inputs, "samplesheet"),
+        star_index=input_path(inputs, "star_index"),
+        outdir=outdir,
+        strandedness=params.get("strandedness", "auto"),
+        two_pass=params.get("two_pass", True),
+        star_image=params.get("image"),
+        threads=params.get("threads", 4),
+        memory_gb=params.get("memory_gb", 32),
         nextflow_config=_optional_path(params.get("nextflow_config")),
         resume=resume,
         check_inputs=check_inputs,
@@ -162,6 +183,7 @@ build_bulk_rnaseq_command = bulk_rnaseq_command
 build_bulk_salmon_command = bulk_salmon_command
 build_bulk_star_reference_command = bulk_star_reference_command
 build_bulk_rnavar_command = bulk_rnavar_command
+build_bulk_align_command = bulk_align_command
 build_bulk_de_command = bulk_de_command
 build_bulk_enrichment_command = bulk_enrichment_command
 rnaseq_command = bulk_rnaseq_command
@@ -174,8 +196,10 @@ __all__ = [
     "build_bulk_enrichment_command",
     "build_bulk_rnaseq_command",
     "build_bulk_salmon_command",
+    "build_bulk_align_command",
     "build_bulk_rnavar_command",
     "build_bulk_star_reference_command",
+    "bulk_align_command",
     "bulk_de_command",
     "bulk_enrichment_command",
     "bulk_rnaseq_command",

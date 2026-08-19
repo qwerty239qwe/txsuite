@@ -36,6 +36,14 @@ TOOLS = (
     ),
     Tool(
         "bulk",
+        "alignment",
+        "STAR two-pass + GeneCounts (native Nextflow DAG)",
+        "nextflow",
+        "txsuite/star",
+        "ready",
+    ),
+    Tool(
+        "bulk",
         "variant-calling",
         "nf-core/rnavar (GATK4 RNA short variants)",
         "nextflow",

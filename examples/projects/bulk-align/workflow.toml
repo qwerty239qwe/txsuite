@@ -1,0 +1,47 @@
+schema_version = 1
+
+[project]
+id = "bulk_align_example"
+modality = "bulk"
+output_root = "results"
+
+[execution]
+profile = "docker"
+resume = true
+
+[[workflow.stages]]
+id = "ref"
+uses = "bulk.star-reference"
+
+[workflow.stages.inputs]
+fasta = "data/genome.fa"
+gtf = "data/genes.gtf"
+
+[workflow.stages.params]
+read_length = 100
+
+[[workflow.stages]]
+id = "align"
+uses = "bulk.align"
+depends_on = ["ref"]
+
+[workflow.stages.inputs]
+samplesheet = "samplesheet.csv"
+star_index = "${ref.star_index}"
+
+[workflow.stages.params]
+strandedness = "auto"
+
+[[workflow.stages]]
+id = "differential"
+uses = "bulk.de"
+depends_on = ["align"]
+
+[workflow.stages.inputs]
+counts = "${align.counts}"
+metadata = "metadata.tsv"
+
+[workflow.stages.params]
+design = "condition"
+reference = "control"
+test = "treated"

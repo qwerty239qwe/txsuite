@@ -13,5 +13,7 @@ RUN conda install --yes --name base --channel conda-forge --channel bioconda \
     && samtools --version | head -1 \
     && gatk --version
 
+COPY merge_star_counts.py /opt/txsuite/merge_star_counts.py
+
 WORKDIR /work
 CMD ["STAR", "--help"]

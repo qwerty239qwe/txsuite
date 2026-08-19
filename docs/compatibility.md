@@ -7,12 +7,12 @@ Validated versions for the 0.1 development line:
 | TxSuite CLI | Python 3.11–3.13 | CI |
 | Project workflow schema | v1 | runtime and packaged JSON Schema parity tested |
 | Project execution profiles | Docker, Apptainer | schema-supported |
-| Project presets | bulk-rnaseq, bulk-salmon, bulk-rnavar, scrnaseq, scrnaseq-alevin, scrnaseq-pseudobulk | packaged-resource and planning tests |
+| Project presets | bulk-rnaseq, bulk-salmon, bulk-align, bulk-rnavar, scrnaseq, scrnaseq-alevin, scrnaseq-pseudobulk | packaged-resource and planning tests |
 | nf-core/rnaseq | 3.26.0 | launcher tested; external raw-data smoke pending |
 | nf-core/scrnaseq | 4.2.0 | launcher tested; external raw-data smoke pending |
 | nf-core/rnavar | 1.3.0 | launcher and artifact adapter tested; pipeline never run in CI |
 | GATK | 4.6.2.0 | packaged in `txsuite/star`; sequence dictionary only |
-| STAR | 2.7.11b | native reference DAG; stub tested in CI |
+| STAR | 2.7.11b | native reference and alignment DAGs; stubs tested in CI |
 | samtools | 1.24 | FASTA indexing in the reference DAG |
 | Cell Ranger (native `mkref`+`count` DAG) | user-installed | stub DAG tested in CI; licensed smoke pending |
 | Salmon (native `index`+`quant` DAG) | 2.5.1 | stub DAG tested in CI; real FASTQ smoke pending |
@@ -52,6 +52,9 @@ downloads run in CI.
 - `bulk.rnavar` is a pinned nf-core launcher. Its `variants` artifact is the
   `variant_calling/` directory, which resolves for any sample count; a
   per-sample VCF contract would fail postflight on multi-sample runs.
+- `bulk.align` infers library strandedness from STAR's forward/reverse split
+  and refuses ambiguous or mutually inconsistent samples. The inference is unit
+  tested against synthetic count tables; no real FASTQ has been aligned in CI.
 - `bulk.star-reference` builds indexes TxSuite owns; `bulk.rnavar` can reuse
   them through optional inputs or let rnavar derive its own. The index and
   dictionary follow the caller's FASTA basename, which is how GATK locates them.

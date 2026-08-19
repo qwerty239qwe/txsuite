@@ -117,6 +117,20 @@ jobs:
           test -s /tmp/txsuite-star-ref-results/reference/genome.fa.fai
           test -s /tmp/txsuite-star-ref-results/reference/genome.dict
           grep -q 'sjdb_overhang	99' /tmp/txsuite-star-ref-results/reference/reference-manifest.tsv
+      - run: >-
+          nextflow run src/txsuite/resources/nextflow/bulk_align.nf
+          -stub-run -profile local
+          -work-dir /tmp/txsuite-align-work
+          --samplesheet /tmp/txsuite-salmon/samplesheet.csv
+          --star_index /tmp/txsuite-star-ref-results/star_index
+          --outdir /tmp/txsuite-align-results
+          --star_image txsuite/star:stub
+      - run: |
+          test -s /tmp/txsuite-align-results/counts/gene_counts.tsv
+          test -s /tmp/txsuite-align-results/counts/strandedness.tsv
+          test -s /tmp/txsuite-align-results/alignments/sample1/Aligned.sortedByCoord.out.bam
+          test -s /tmp/txsuite-align-results/logs/sample1/Log.final.out
+          test -s /tmp/txsuite-align-results/alignments/sample1/Aligned.sortedByCoord.out.bam.bai
       - run: mkdir -p /tmp/txsuite-cellranger-fastqs && touch /tmp/txsuite-cellranger-genome.fa /tmp/txsuite-cellranger-genes.gtf
       - run: >-
           nextflow run src/txsuite/resources/nextflow/single_cell_cellranger.nf

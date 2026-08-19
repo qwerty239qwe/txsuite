@@ -61,8 +61,8 @@ declared inputs, configuration, and required artifacts still match. Raw
 nf-core outputs are resolved after the producer succeeds; downstream symbolic
 inputs such as `${rnaseq.counts}` are never passed to a subprocess unresolved.
 
-Available presets are `bulk-rnaseq`, `bulk-salmon`, `bulk-rnavar`,
-`scrnaseq`, `scrnaseq-alevin`, and `scrnaseq-pseudobulk`. The quantification
+Available presets are `bulk-rnaseq`, `bulk-salmon`, `bulk-align`,
+`bulk-rnavar`, `scrnaseq`, `scrnaseq-alevin`, and `scrnaseq-pseudobulk`. The quantification
 presets differ in backend, not in downstream stages: `bulk-rnaseq` and
 `scrnaseq` launch pinned nf-core pipelines, while `bulk-salmon` and
 `scrnaseq-alevin` run native TxSuite DAGs built on salmon and

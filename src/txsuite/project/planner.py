@@ -354,6 +354,10 @@ def _default_output_path(
         ("bulk.salmon", "counts"): outdir / "counts" / "gene_counts.tsv",
         ("bulk.salmon", "tx_counts"): outdir / "counts" / "transcript_counts.tsv",
         ("single-cell.alevin", "matrix"): outdir / "matrix" / "alevin.h5ad",
+        ("bulk.align", "counts"): outdir / "counts" / "gene_counts.tsv",
+        ("bulk.align", "strandedness"): outdir / "counts" / "strandedness.tsv",
+        ("bulk.align", "alignments"): outdir / "alignments",
+        ("bulk.align", "logs"): outdir / "logs",
         ("bulk.star-reference", "star_index"): outdir / "star_index",
         ("bulk.star-reference", "manifest"): outdir
         / "reference"

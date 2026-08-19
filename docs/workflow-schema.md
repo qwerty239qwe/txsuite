@@ -49,8 +49,8 @@ Each `[[workflow.stages]]` has:
 
 Currently registered stage types are:
 
-- `bulk.rnaseq`, `bulk.salmon`, `bulk.rnavar`, `bulk.star-reference`,
-  `bulk.de`, and `bulk.enrichment`;
+- `bulk.rnaseq`, `bulk.salmon`, `bulk.align`, `bulk.rnavar`,
+  `bulk.star-reference`, `bulk.de`, and `bulk.enrichment`;
 - `single-cell.scrnaseq`, `single-cell.alevin`, `single-cell.scanpy`,
   `single-cell.pseudobulk`, and `single-cell.pseudobulk-de`.
 
@@ -67,6 +67,31 @@ for `bulk.rnaseq` ahead of `bulk.de`; `single-cell.alevin` emits
 Use `txsuite project validate workflow.toml` instead of relying on this list:
 validation is also responsible for artifact types, required parameters,
 dependency cycles, backend compatibility, and future registry changes.
+
+## Genome alignment
+
+`bulk.align` runs STAR two-pass against a prebuilt index and emits sorted BAMs,
+per-sample logs, and a gene-count matrix. STAR produces the counts as a
+by-product of alignment (`--quantMode GeneCounts`), so the stage feeds
+`bulk.de` directly with no separate quantification step. `star_index` is a
+required input, which keeps one implementation of `genomeGenerate` in the repo
+and makes reuse of that expensive artifact explicit in the graph.
+
+`ReadsPerGene.out.tab` reports unstranded, forward, and reverse totals side by
+side, and the wrong column yields a matrix that is mostly noise without failing.
+`strandedness` defaults to `auto`, which classifies the library from the split
+between the two *stranded* columns — the unstranded column is approximately
+their sum, so comparing all three would always answer `unstranded`. The choice
+and its evidence are written to `counts/strandedness.tsv`. The run fails rather
+than guessing when the split is neither clearly stranded nor near even, and when
+samples disagree with each other. Set `strandedness` explicitly to skip
+inference; the report still records what was used.
+
+Samplesheets for `bulk.align` and `bulk.salmon` use the `bulk.fastq-samplesheet`
+type: `sample` and `fastq_1` are required, `fastq_2` is optional, and no
+`strandedness` column is needed because both stages infer it. That is a weaker
+contract than `bulk.rnaseq-samplesheet`, so the two are deliberately distinct
+types and cannot be wired interchangeably.
 
 ## Variant calling and reference reuse
 
