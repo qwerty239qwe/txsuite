@@ -36,6 +36,7 @@ from txsuite.project import (
     scaffold_project_preset,
     select_stages,
 )
+from txsuite.genesets import build_genesets_image
 from txsuite.reference import build_star_image
 from txsuite.runtime import TxSuiteError, format_command, run_command
 from txsuite.single_cell import (
@@ -424,6 +425,7 @@ def _parser() -> argparse.ArgumentParser:
         "environment",
         choices=(
             "bulk-r",
+            "genesets",
             "salmon",
             "star",
             "single-cell-python",
@@ -1429,6 +1431,8 @@ def run(argv: list[str] | None = None) -> int:
             run_dir = args.run_dir or Path(f".txsuite/build-{args.environment}")
             if args.environment == "bulk-r":
                 build_bulk_r_image(tag, run_dir=run_dir)
+            elif args.environment == "genesets":
+                build_genesets_image(tag, run_dir=run_dir)
             elif args.environment == "salmon":
                 build_salmon_image(tag, run_dir=run_dir)
             elif args.environment == "star":

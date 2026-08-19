@@ -14,6 +14,7 @@ from txsuite.bulk import (
 )
 
 from txsuite.alignment import align_workflow_command
+from txsuite.genesets import genesets_command
 from txsuite.reference import star_reference_workflow_command
 from txsuite.variants import rnavar_workflow_command
 
@@ -65,6 +66,23 @@ def bulk_salmon_command(context: Mapping[str, Any] | object) -> list[str]:
         nextflow_config=_optional_path(params.get("nextflow_config")),
         resume=resume,
         check_inputs=check_inputs,
+    )
+
+
+def bulk_genesets_command(context: Mapping[str, Any] | object) -> list[str]:
+    """Build the gene-set materialization command for a registry context."""
+
+    config, _inputs, params, outdir, _resume, _check = command_context(context)
+    return genesets_command(
+        image=configured_image(config, params, "genesets"),
+        outdir=outdir,
+        sources=tuple(params.get("sources", ("go",))),
+        species=params.get("species", "human"),
+        keytype=params.get("keytype", "symbol"),
+        aspect=params.get("aspect", "biological_process"),
+        min_size=params.get("min_size", 10),
+        max_size=params.get("max_size", 500),
+        min_mapped_fraction=params.get("min_mapped_fraction", 0.5),
     )
 
 
@@ -184,6 +202,7 @@ build_bulk_salmon_command = bulk_salmon_command
 build_bulk_star_reference_command = bulk_star_reference_command
 build_bulk_rnavar_command = bulk_rnavar_command
 build_bulk_align_command = bulk_align_command
+build_bulk_genesets_command = bulk_genesets_command
 build_bulk_de_command = bulk_de_command
 build_bulk_enrichment_command = bulk_enrichment_command
 rnaseq_command = bulk_rnaseq_command
@@ -197,9 +216,11 @@ __all__ = [
     "build_bulk_rnaseq_command",
     "build_bulk_salmon_command",
     "build_bulk_align_command",
+    "build_bulk_genesets_command",
     "build_bulk_rnavar_command",
     "build_bulk_star_reference_command",
     "bulk_align_command",
+    "bulk_genesets_command",
     "bulk_de_command",
     "bulk_enrichment_command",
     "bulk_rnaseq_command",

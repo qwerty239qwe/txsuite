@@ -3,6 +3,7 @@ profile = "docker"
 
 [images]
 bulk_r = "txsuite/bulk-r:0.2.0"
+genesets = "txsuite/genesets:0.2.0"
 salmon = "txsuite/salmon:0.2.0"
 star = "txsuite/star:0.2.0"
 single_cell_python = "txsuite/single-cell-python:0.2.0"

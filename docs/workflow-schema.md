@@ -50,7 +50,7 @@ Each `[[workflow.stages]]` has:
 Currently registered stage types are:
 
 - `bulk.rnaseq`, `bulk.salmon`, `bulk.align`, `bulk.rnavar`,
-  `bulk.star-reference`, `bulk.de`, and `bulk.enrichment`;
+  `bulk.star-reference`, `bulk.de`, `bulk.genesets`, and `bulk.enrichment`;
 - `single-cell.scrnaseq`, `single-cell.alevin`, `single-cell.scanpy`,
   `single-cell.pseudobulk`, and `single-cell.pseudobulk-de`.
 
@@ -67,6 +67,46 @@ for `bulk.rnaseq` ahead of `bulk.de`; `single-cell.alevin` emits
 Use `txsuite project validate workflow.toml` instead of relying on this list:
 validation is also responsible for artifact types, required parameters,
 dependency cycles, backend compatibility, and future registry changes.
+
+## Gene sets for enrichment
+
+`bulk.enrichment` requires a GMT. `bulk.genesets` produces one from GO, KEGG,
+and Reactome so a project need not supply its own:
+
+```toml
+[[workflow.stages]]
+id = "genesets"
+uses = "bulk.genesets"
+
+[workflow.stages.params]
+sources = ["go", "kegg", "reactome"]
+species = "human"
+keytype = "ensembl"
+
+[[workflow.stages]]
+id = "enrichment"
+uses = "bulk.enrichment"
+depends_on = ["genesets"]
+
+[workflow.stages.inputs]
+de_results = "${differential.de_results}"
+genesets = "${genesets.gmt}"
+```
+
+The emitted GMT is the same `gene-sets.gmt` artifact type a hand-supplied file
+uses, so ORA and GSEA both keep running through clusterProfiler on one
+collection. `keytype` must match the identifiers in the differential-expression
+table; the members are translated into that namespace and `id-mapping.tsv`
+records how many were lost, failing below `min_mapped_fraction` rather than
+enriching on a fragment of the genes.
+
+**This is the only stage that uses the network at run time.** It is separate for
+exactly that reason: the collection becomes an ordinary artifact, so every
+downstream stage stays offline. `sources.json` records the fetch timestamp, the
+resolved parameters, and the `biodbs` version, which is what lets a result that
+differs months later be explained. Gene sets from live databases are not pinned
+the way a container digest is; re-fetching may legitimately produce a different
+collection.
 
 ## Batch integration
 

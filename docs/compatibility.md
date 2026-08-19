@@ -26,6 +26,7 @@ Validated versions for the 0.1 development line:
 | edgeR | 4.10.1 / Bioconductor 3.23 | formula-capable quasi-likelihood Docker smoke passed |
 | limma | 3.68.4 / Bioconductor 3.23 | formula-capable voom Docker smoke passed |
 | clusterProfiler | 4.20.0 / Bioconductor 3.23 | GMT ORA and GSEA smokes passed |
+| biodbs | 0.4.1 | gene-set fetching; artifact rendering unit tested, live APIs not exercised in CI |
 | Scanpy | 1.12.2 / Python 3.12 | count-safe configurable stages, QC, Scrublet, batch-aware HVGs, Leiden markers, and grouped pseudobulk Docker smoke passed |
 | Harmonypy | 2.0.0 | PCA integration Docker smoke passed; reachable from `single-cell.scanpy` |
 | SpatialData | 0.8.0 | synthetic Docker smoke passed |
@@ -52,6 +53,11 @@ downloads run in CI.
 - `bulk.rnavar` is a pinned nf-core launcher. Its `variants` artifact is the
   `variant_calling/` directory, which resolves for any sample count; a
   per-sample VCF contract would fail postflight on multi-sample runs.
+- `bulk.genesets` queries GO, KEGG, and Reactome over the network and is the
+  only stage that does. Its GMT, mapping report, and provenance record are
+  artifacts like any other, but the upstream databases are not version-pinned:
+  a re-fetch can legitimately change the collection, which `sources.json`
+  records rather than prevents.
 - `bulk.align` infers library strandedness from STAR's forward/reverse split
   and refuses ambiguous or mutually inconsistent samples. The inference is unit
   tested against synthetic count tables; no real FASTQ has been aligned in CI.

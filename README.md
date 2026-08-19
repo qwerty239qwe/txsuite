@@ -373,9 +373,9 @@ txsuite reference cache \
 Release configurations must use immutable `image@sha256:digest` references;
 `txsuite env verify-images` reports mutable tags and exits nonzero. See
 `docs/slurm.md`, `docs/compatibility.md`, and `docs/release.md` for cluster and
-release checks. The `containers` GitHub Actions workflow publishes all five
-owned images — `bulk-r`, `salmon`, `star`, `single-cell-python`, and
-`spatial-python` — to GHCR from version tags or a manual run.
+release checks. The `containers` GitHub Actions workflow publishes all six
+owned images — `bulk-r`, `genesets`, `salmon`, `star`,
+`single-cell-python`, and `spatial-python` — to GHCR from version tags or a manual run.
 
 ## Project documentation
 

@@ -12,6 +12,12 @@ from typing import Any
 
 from txsuite.alignment import STRANDEDNESS
 from txsuite.bulk import CONTRAST_MODES, PSEUDO_ALIGNERS, SALMON_LIBTYPES
+from txsuite.genesets import (
+    GENESET_KEYTYPES,
+    GENESET_SOURCES,
+    GENESET_SPECIES,
+    GO_ASPECTS,
+)
 from txsuite.runtime import TxSuiteError
 from txsuite.single_cell import (
     ALEVIN_CHEMISTRIES,
@@ -24,6 +30,7 @@ from .adapters.bulk import (
     bulk_align_command,
     bulk_de_command,
     bulk_enrichment_command,
+    bulk_genesets_command,
     bulk_rnaseq_command,
     bulk_rnavar_command,
     bulk_salmon_command,
@@ -240,6 +247,20 @@ def _optional_choice(*choices: str) -> ParameterValidator:
         return value
 
     return validate
+
+
+def _geneset_sources(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str) or not isinstance(value, (list, tuple)):
+        raise ValueError("must be a list of gene-set source names")
+    sources = tuple(str(item) for item in value)
+    if not sources:
+        raise ValueError("must name at least one source")
+    unknown = sorted(set(sources) - set(GENESET_SOURCES))
+    if unknown:
+        raise ValueError(f"must contain only: {', '.join(GENESET_SOURCES)}")
+    if len(set(sources)) != len(sources):
+        raise ValueError("must not repeat a source")
+    return sources
 
 
 def _annotation_tools(value: Any) -> tuple[str, ...]:
@@ -618,6 +639,50 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         required_executables=("docker",),
         required_images=("images.bulk_r",),
         command_factory=bulk_de_command,
+    ),
+    StageSpec(
+        id="bulk.genesets",
+        modality="bulk",
+        maturity="ready",
+        # No inputs: this stage fetches. It is the only stage that needs network
+        # access, which is why it is separate -- the GMT it writes is an ordinary
+        # artifact, so everything downstream stays offline and reproducible.
+        inputs={},
+        outputs={
+            "results": "bulk.geneset-results",
+            "gmt": "gene-sets.gmt",
+            "mapping": "bulk.id-mapping-report",
+            "provenance": "bulk.geneset-provenance",
+        },
+        output_policies={
+            "results": OutputPolicy("directory", non_empty=True),
+            "gmt": OutputPolicy("file", non_empty=True),
+            "mapping": OutputPolicy("file", non_empty=True),
+            "provenance": OutputPolicy("file", non_empty=True),
+        },
+        defaults={
+            "image": None,
+            "sources": ("go",),
+            "species": "human",
+            "keytype": "symbol",
+            "aspect": "biological_process",
+            "min_size": 10,
+            "max_size": 500,
+            "min_mapped_fraction": 0.5,
+        },
+        validators={
+            "image": _optional_string,
+            "sources": _geneset_sources,
+            "species": _choice(*GENESET_SPECIES),
+            "keytype": _choice(*GENESET_KEYTYPES),
+            "aspect": _choice(*GO_ASPECTS),
+            "min_size": _positive_int,
+            "max_size": _positive_int,
+            "min_mapped_fraction": _probability,
+        },
+        required_executables=("docker",),
+        required_images=("images.genesets",),
+        command_factory=bulk_genesets_command,
     ),
     StageSpec(
         id="bulk.enrichment",

@@ -44,8 +44,8 @@ remain external release blockers.
 
 - nf-core workflows use their own pinned process containers; TxSuite does not
   rebuild them.
-- TxSuite builds only the images it owns: `bulk-r`, `salmon`, `star`,
-  `single-cell-python`, and `spatial-python`. `salmon` and `star` are the owned
+- TxSuite builds only the images it owns: `bulk-r`, `genesets`, `salmon`,
+  `star`, `single-cell-python`, and `spatial-python`. `salmon` and `star` are the owned
   images that run raw-data steps rather than downstream analyses; TxSuite owns
   them because the native `bulk.salmon`, `single-cell.alevin`, and
   `bulk.star-reference` DAGs are its own pipelines, not nf-core pipelines with

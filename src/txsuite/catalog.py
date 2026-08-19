@@ -69,6 +69,14 @@ TOOLS = (
     Tool(
         "bulk",
         "enrichment",
+        "GO/KEGG/Reactome gene sets (biodbs)",
+        "docker",
+        "txsuite/genesets",
+        "ready",
+    ),
+    Tool(
+        "bulk",
+        "enrichment",
         "clusterProfiler ORA/GSEA",
         "docker",
         "txsuite/bulk-r",
