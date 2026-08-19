@@ -345,6 +345,11 @@ def _default_output_path(
     if name == "results":
         return outdir
     known = {
+        # The native quantification DAGs publish fixed relative paths, so unlike
+        # the nf-core stages their artifacts resolve at plan time.
+        ("bulk.salmon", "counts"): outdir / "counts" / "gene_counts.tsv",
+        ("bulk.salmon", "tx_counts"): outdir / "counts" / "transcript_counts.tsv",
+        ("single-cell.alevin", "matrix"): outdir / "matrix" / "alevin.h5ad",
         ("single-cell.scanpy", "h5ad"): outdir / "analysis.h5ad",
         ("single-cell.pseudobulk", "counts"): outdir / "pseudobulk-counts.tsv",
         ("single-cell.pseudobulk", "metadata"): outdir / "pseudobulk-metadata.tsv",
@@ -354,6 +359,8 @@ def _default_output_path(
     }
     if uses == "bulk.de" and name == "de_results":
         return outdir / f"{params['method']}-results.tsv"
+    if uses == "bulk.de" and name == "contrast_index":
+        return outdir / "contrasts.tsv"
     return known.get((uses, name))
 
 

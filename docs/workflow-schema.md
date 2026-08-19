@@ -49,13 +49,57 @@ Each `[[workflow.stages]]` has:
 
 Currently registered stage types are:
 
-- `bulk.rnaseq`, `bulk.de`, and `bulk.enrichment`;
-- `single-cell.scrnaseq`, `single-cell.scanpy`,
+- `bulk.rnaseq`, `bulk.salmon`, `bulk.de`, and `bulk.enrichment`;
+- `single-cell.scrnaseq`, `single-cell.alevin`, `single-cell.scanpy`,
   `single-cell.pseudobulk`, and `single-cell.pseudobulk-de`.
+
+`bulk.salmon` and `single-cell.alevin` are native TxSuite DAGs rather than
+nf-core launchers. They build a decoy-aware salmon index or a simpleaf splici
+index from `fasta` and `gtf`, or reuse a prebuilt one through `salmon_index`
+(with a `tx2gene` table) or `simpleaf_index`. Because TxSuite owns their output
+layout, their artifacts resolve at plan time instead of deferring to a
+postflight adapter. `bulk.salmon` emits `bulk.gene-counts`, so it substitutes
+for `bulk.rnaseq` ahead of `bulk.de`; `single-cell.alevin` emits
+`single-cell.matrix`, so it substitutes for `single-cell.scrnaseq` ahead of
+`single-cell.scanpy`.
 
 Use `txsuite project validate workflow.toml` instead of relying on this list:
 validation is also responsible for artifact types, required parameters,
 dependency cycles, backend compatibility, and future registry changes.
+
+## Contrast expansion
+
+`bulk.de` runs one comparison by default. Set `contrasts` to derive the whole
+comparison set from the levels of the design column instead of writing one stage
+per pair:
+
+```toml
+[workflow.stages.params]
+design = "condition"
+reference = "control"
+test = "treated"
+contrasts = "vs-reference"    # single (default), vs-reference, or all-pairs
+```
+
+`vs-reference` compares every other level against `reference`; `all-pairs`
+compares every level combination. `reference` and `test` stay required and name
+the *primary* contrast, which keeps its existing outputs: `<method>-results.tsv`,
+`significant-genes.tsv`, and the volcano and MA plots are all unchanged. Extra
+contrasts are written to `contrasts/DE_<test>_vs_<reference>.tsv`.
+
+Every mode writes a `contrasts.tsv` index — one row in `single` mode — with the
+contrast id, its levels, gene and significant-gene counts, and the relative path
+to its table. Because the index always exists, the declared output set does not
+change with the parameter.
+
+For DESeq2 the expanded contrasts are read off one shared model fit. edgeR and
+limma model each comparison as a two-level subset, so those methods refit per
+contrast; the tradeoff is that a contrast's numbers are identical whether it was
+produced by an expanded run or a single-contrast run.
+
+Above 50 comparisons the stage fails rather than launching the run, naming the
+column and its level count. Formula/coefficient mode has no design levels to
+expand and rejects any mode other than `single`.
 
 ## Artifact references and deferred commands
 
@@ -91,7 +135,9 @@ Create a safe, non-overwriting scaffold with:
 
 ```bash
 txsuite project init --preset bulk-rnaseq my-project
+txsuite project init --preset bulk-salmon my-project
 txsuite project init --preset scrnaseq my-project
+txsuite project init --preset scrnaseq-alevin my-project
 txsuite project init --preset scrnaseq-pseudobulk my-project
 ```
 

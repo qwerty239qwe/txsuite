@@ -28,6 +28,14 @@ TOOLS = (
     Tool("bulk", "quantification", "Salmon", "salmon", "nf-core/rnaseq", "selected"),
     Tool(
         "bulk",
+        "quantification",
+        "Salmon selective alignment (native Nextflow DAG)",
+        "nextflow",
+        "txsuite/salmon",
+        "ready",
+    ),
+    Tool(
+        "bulk",
         "differential-expression",
         "DESeq2",
         "docker",
@@ -69,6 +77,14 @@ TOOLS = (
     ),
     Tool(
         "single-cell", "alignment", "STARsolo", "STAR", "nf-core/scrnaseq", "selected"
+    ),
+    Tool(
+        "single-cell",
+        "quantification",
+        "simpleaf + alevin-fry (native Nextflow DAG)",
+        "nextflow",
+        "txsuite/salmon + single-cell-python",
+        "ready",
     ),
     Tool(
         "single-cell",

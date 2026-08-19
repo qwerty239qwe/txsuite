@@ -26,9 +26,11 @@ class StageRegistryTests(unittest.TestCase):
     def test_registry_contains_the_wave_one_stages_in_stable_order(self) -> None:
         expected = (
             "bulk.rnaseq",
+            "bulk.salmon",
             "bulk.de",
             "bulk.enrichment",
             "single-cell.scrnaseq",
+            "single-cell.alevin",
             "single-cell.scanpy",
             "single-cell.pseudobulk",
             "single-cell.pseudobulk-de",
@@ -37,7 +39,7 @@ class StageRegistryTests(unittest.TestCase):
         self.assertEqual(tuple(spec.uses for spec in specs), expected)
         self.assertEqual(get_stage_spec("bulk.de").id, "bulk.de")
         self.assertEqual(
-            tuple(spec.id for spec in list_stage_specs("bulk")), expected[:3]
+            tuple(spec.id for spec in list_stage_specs("bulk")), expected[:4]
         )
         with self.assertRaises(FrozenInstanceError):
             specs[0].maturity = "ready"  # type: ignore[misc]

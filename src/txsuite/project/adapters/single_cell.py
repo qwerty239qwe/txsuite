@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from txsuite.single_cell import (
+    alevin_workflow_command,
     analysis_command,
     pseudobulk_command as _pseudobulk_command,
     pseudobulk_workflow_command,
@@ -33,7 +34,32 @@ def scrnaseq_command(context: Mapping[str, Any] | object) -> list[str]:
         protocol=params.get("protocol"),
         params_file=_optional_path(params.get("params_file")),
         nextflow_config=_optional_path(params.get("nextflow_config")),
+        simpleaf_index=_optional_path(params.get("simpleaf_index")),
+        txp2gene=_optional_path(params.get("txp2gene")),
         resume=resume,
+    )
+
+
+def alevin_command(context: Mapping[str, Any] | object) -> list[str]:
+    """Build the native simpleaf/alevin-fry DAG for a registry context."""
+
+    config, inputs, params, outdir, resume, check_inputs = command_context(context)
+    return alevin_workflow_command(
+        dict(config),
+        samplesheet=input_path(inputs, "samplesheet"),
+        outdir=outdir,
+        fasta=_optional_path(params.get("fasta")),
+        gtf=_optional_path(params.get("gtf")),
+        simpleaf_index=_optional_path(params.get("simpleaf_index")),
+        chemistry=params.get("chemistry", "10xv3"),
+        resolution=params.get("resolution", "cr-like"),
+        whitelist=_optional_path(params.get("whitelist")),
+        rlen=params.get("rlen", 91),
+        salmon_image=params.get("image"),
+        single_cell_image=params.get("single_cell_image"),
+        nextflow_config=_optional_path(params.get("nextflow_config")),
+        resume=resume,
+        check_inputs=check_inputs,
     )
 
 
@@ -93,6 +119,7 @@ def pseudobulk_de_command(context: Mapping[str, Any] | object) -> list[str]:
     )
 
 
+build_alevin_command = alevin_command
 build_scrnaseq_command = scrnaseq_command
 build_scanpy_command = scanpy_command
 build_pseudobulk_command = pseudobulk_command
@@ -100,6 +127,8 @@ build_pseudobulk_de_command = pseudobulk_de_command
 
 
 __all__ = [
+    "alevin_command",
+    "build_alevin_command",
     "build_pseudobulk_command",
     "build_pseudobulk_de_command",
     "build_scanpy_command",

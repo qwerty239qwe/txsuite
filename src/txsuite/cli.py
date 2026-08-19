@@ -9,6 +9,7 @@ from pathlib import Path
 
 from txsuite.bulk import (
     build_bulk_r_image,
+    build_salmon_image,
     deseq2_command,
     differential_expression_command,
     enrichment_command,
@@ -418,7 +419,13 @@ def _parser() -> argparse.ArgumentParser:
     build = env_commands.add_parser("build", help="build a TxSuite-owned image")
     build.add_argument(
         "environment",
-        choices=("bulk-r", "single-cell-python", "spatial-python", "cellranger"),
+        choices=(
+            "bulk-r",
+            "salmon",
+            "single-cell-python",
+            "spatial-python",
+            "cellranger",
+        ),
     )
     build.add_argument("--tag")
     build.add_argument(
@@ -1418,6 +1425,8 @@ def run(argv: list[str] | None = None) -> int:
             run_dir = args.run_dir or Path(f".txsuite/build-{args.environment}")
             if args.environment == "bulk-r":
                 build_bulk_r_image(tag, run_dir=run_dir)
+            elif args.environment == "salmon":
+                build_salmon_image(tag, run_dir=run_dir)
             elif args.environment == "single-cell-python":
                 build_single_cell_image(tag, run_dir=run_dir)
             else:

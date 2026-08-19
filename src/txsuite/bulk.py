@@ -13,6 +13,8 @@ from txsuite.runtime import TxSuiteError, run_command
 REQUIRED_COLUMNS = {"sample", "fastq_1", "fastq_2", "strandedness"}
 STRANDEDNESS = {"auto", "forward", "reverse", "unstranded"}
 DE_METHODS = ("deseq2", "edger", "limma")
+PSEUDO_ALIGNERS = ("salmon", "kallisto")
+CONTRAST_MODES = ("single", "vs-reference", "all-pairs")
 
 
 def validate_samplesheet(path: Path) -> int:
@@ -52,8 +54,22 @@ def workflow_command(
     outdir: Path,
     params_file: Path | None = None,
     nextflow_config: Path | None = None,
+    pseudo_aligner: str | None = None,
+    skip_alignment: bool = False,
+    salmon_index: Path | None = None,
     resume: bool = False,
 ) -> list[str]:
+    if pseudo_aligner is not None and pseudo_aligner not in PSEUDO_ALIGNERS:
+        raise TxSuiteError(
+            f"Pseudo-aligner must be one of: {', '.join(PSEUDO_ALIGNERS)}"
+        )
+    if skip_alignment and pseudo_aligner is None:
+        raise TxSuiteError("Skipping alignment requires a pseudo-aligner")
+    if salmon_index is not None:
+        if pseudo_aligner != "salmon":
+            raise TxSuiteError("A salmon index requires --pseudo-aligner salmon")
+        if not salmon_index.is_dir():
+            raise TxSuiteError(f"Salmon index does not exist: {salmon_index}")
     pipeline = config["pipelines"]["bulk"]
     command = [
         "nextflow",
@@ -68,6 +84,12 @@ def workflow_command(
         "--outdir",
         str(outdir.resolve()),
     ]
+    if pseudo_aligner is not None:
+        command.extend(["--pseudo_aligner", pseudo_aligner])
+    if skip_alignment:
+        command.append("--skip_alignment")
+    if salmon_index is not None:
+        command.extend(["--salmon_index", str(salmon_index.resolve())])
     if params_file is not None:
         if not params_file.is_file():
             raise TxSuiteError(f"Params file does not exist: {params_file}")
@@ -78,6 +100,163 @@ def workflow_command(
         command.extend(["-c", str(nextflow_config.resolve())])
     if resume:
         command.append("-resume")
+    return command
+
+
+SALMON_LIBTYPES = (
+    "A",
+    "IU",
+    "ISF",
+    "ISR",
+    "MU",
+    "MSF",
+    "MSR",
+    "OU",
+    "OSF",
+    "OSR",
+    "U",
+    "SF",
+    "SR",
+)
+
+
+def validate_quant_samplesheet(path: Path) -> int:
+    """Validate the reduced samplesheet the native quantification DAGs accept.
+
+    Selective alignment infers strandedness from ``--libType A``, so unlike
+    :func:`validate_samplesheet` this contract requires only ``sample`` and
+    ``fastq_1``. Reading the file here means a malformed samplesheet fails
+    before Nextflow starts rather than inside a process.
+    """
+
+    if not path.is_file():
+        raise TxSuiteError(f"Samplesheet does not exist: {path}")
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        missing = {"sample", "fastq_1"} - set(reader.fieldnames or ())
+        if missing:
+            raise TxSuiteError(
+                f"Samplesheet is missing columns: {', '.join(sorted(missing))}"
+            )
+        seen: set[str] = set()
+        rows = 0
+        for line, row in enumerate(reader, start=2):
+            sample = (row.get("sample") or "").strip()
+            if not sample or not (row.get("fastq_1") or "").strip():
+                raise TxSuiteError(
+                    f"Samplesheet line {line} requires sample and fastq_1"
+                )
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", sample):
+                raise TxSuiteError(
+                    f"Samplesheet line {line} sample may contain only letters, "
+                    "numbers, ., _ and -"
+                )
+            if sample in seen:
+                raise TxSuiteError(f"Samplesheet line {line} repeats sample {sample!r}")
+            seen.add(sample)
+            rows += 1
+    if not rows:
+        raise TxSuiteError("Samplesheet has no data rows")
+    return rows
+
+
+def salmon_workflow_command(
+    config: dict[str, Any],
+    *,
+    samplesheet: Path,
+    outdir: Path,
+    fasta: Path | None = None,
+    gtf: Path | None = None,
+    salmon_index: Path | None = None,
+    tx2gene: Path | None = None,
+    salmon_image: str | None = None,
+    libtype: str = "A",
+    kmer_len: int = 31,
+    gencode: bool = False,
+    nextflow_config: Path | None = None,
+    resume: bool = False,
+    check_inputs: bool = True,
+) -> list[str]:
+    """Build the native salmon selective-alignment Nextflow DAG.
+
+    Either ``salmon_index`` or both ``fasta`` and ``gtf`` must be supplied. A
+    prebuilt index carries no annotation, so it also requires ``tx2gene``;
+    when the index is built here the table is derived from the GTF.
+    """
+
+    if libtype not in SALMON_LIBTYPES:
+        raise TxSuiteError(f"Salmon library type must be one of: {', '.join(SALMON_LIBTYPES)}")
+    if kmer_len < 1 or kmer_len % 2 == 0:
+        raise TxSuiteError("Salmon k-mer length must be a positive odd number")
+    if bool(salmon_index) == bool(fasta or gtf):
+        raise TxSuiteError(
+            "Pass either --salmon-index, or both --fasta and --gtf to build one"
+        )
+    if bool(fasta) != bool(gtf):
+        raise TxSuiteError("Building a salmon index requires both --fasta and --gtf")
+    if salmon_index is not None and tx2gene is None:
+        raise TxSuiteError(
+            "A prebuilt salmon index also requires --tx2gene for gene-level counts"
+        )
+    if check_inputs:
+        validate_quant_samplesheet(samplesheet)
+        for label, path, is_dir in (
+            ("Salmon index", salmon_index, True),
+            ("Genome FASTA", fasta, False),
+            ("Annotation GTF", gtf, False),
+            ("Transcript-to-gene table", tx2gene, False),
+        ):
+            if path is None:
+                continue
+            if is_dir and not path.is_dir():
+                raise TxSuiteError(f"{label} does not exist: {path}")
+            if not is_dir and not path.is_file():
+                raise TxSuiteError(f"{label} does not exist: {path}")
+    if nextflow_config is not None and not nextflow_config.is_file():
+        raise TxSuiteError(f"Nextflow config does not exist: {nextflow_config}")
+
+    image = salmon_image or config["images"]["salmon"]
+    if not image.strip():
+        raise TxSuiteError("Workflow images cannot be empty")
+
+    workflow = resources.files("txsuite.resources.nextflow").joinpath("bulk_salmon.nf")
+    command = [
+        "nextflow",
+        "run",
+        str(workflow),
+        "-profile",
+        config["execution"]["profile"],
+        "-work-dir",
+        str((outdir / ".nextflow-work").resolve()),
+    ]
+    if nextflow_config is not None:
+        command.extend(["-c", str(nextflow_config.resolve())])
+    if resume:
+        command.append("-resume")
+    command.extend(
+        [
+            "--samplesheet",
+            str(samplesheet.resolve()),
+            "--outdir",
+            str(outdir.resolve()),
+            "--salmon_image",
+            image,
+            "--salmon_libtype",
+            libtype,
+            "--salmon_kmer_len",
+            str(kmer_len),
+            "--salmon_gencode",
+            "true" if gencode else "false",
+        ]
+    )
+    if salmon_index is not None:
+        command.extend(["--salmon_index", str(salmon_index.resolve())])
+    else:
+        command.extend(
+            ["--fasta", str(fasta.resolve()), "--gtf", str(gtf.resolve())]
+        )
+    if tx2gene is not None:
+        command.extend(["--tx2gene", str(tx2gene.resolve())])
     return command
 
 
@@ -96,13 +275,20 @@ def deseq2_command(
     padj: float = 0.05,
     lfc: float = 1.0,
     top_genes: int = 50,
+    contrasts: str = "single",
     check_inputs: bool = True,
 ) -> list[str]:
     if check_inputs:
         for label, path in (("Counts", counts), ("Metadata", metadata)):
             if not path.is_file():
                 raise TxSuiteError(f"{label} file does not exist: {path}")
+    if contrasts not in CONTRAST_MODES:
+        raise TxSuiteError(f"Contrasts must be one of: {', '.join(CONTRAST_MODES)}")
     advanced = formula is not None or coefficient is not None
+    if advanced and contrasts != "single":
+        raise TxSuiteError(
+            "Formula mode has no design levels to expand; contrasts must be 'single'"
+        )
     if advanced:
         if not formula or not coefficient:
             raise TxSuiteError("Formula and coefficient must be used together")
@@ -168,6 +354,7 @@ def deseq2_command(
         ",".join(covariates),
         formula or "",
         coefficient or "",
+        contrasts,
     ]
 
 
@@ -187,6 +374,7 @@ def differential_expression_command(
     padj: float = 0.05,
     lfc: float = 1.0,
     top_genes: int = 50,
+    contrasts: str = "single",
     check_inputs: bool = True,
 ) -> list[str]:
     if method not in DE_METHODS:
@@ -205,6 +393,7 @@ def differential_expression_command(
         padj=padj,
         lfc=lfc,
         top_genes=top_genes,
+        contrasts=contrasts,
         check_inputs=check_inputs,
     )
     if method != "deseq2":
@@ -281,6 +470,39 @@ def enrichment_command(
         str(max_size),
         adjust,
     ]
+
+
+def build_salmon_image(tag: str, *, run_dir: Path) -> None:
+    """Build the quantification image shared by the bulk and single-cell DAGs."""
+
+    if not tag.strip():
+        raise TxSuiteError("Image tag cannot be empty")
+    package = resources.files("txsuite.resources.salmon")
+    with tempfile.TemporaryDirectory(prefix="txsuite-salmon-") as directory:
+        context = Path(directory)
+        for name in ("Dockerfile", "merge_quants.py"):
+            (context / name).write_text(
+                package.joinpath(name).read_text(encoding="utf-8"), encoding="utf-8"
+            )
+        run_command(
+            ["docker", "build", "--tag", tag, str(context)],
+            run_dir=run_dir,
+            task="env.build.salmon",
+            backend="docker",
+            inputs={
+                "base": (
+                    "condaforge/miniforge3:26.3.2-3@"
+                    "sha256:532f6ee7a858b009dc895f8313eb6ed875f05a455ec57d832aa6b4c66e2799b9"
+                ),
+                "salmon": "2.5.1",
+                "simpleaf": "0.28.0",
+                "alevin-fry": "0.18.0",
+                "piscem": "0.22.1",
+                "gffread": "0.12.9",
+            },
+            outputs={"image": tag},
+            artifacts=[{"kind": "container-image", "label": "salmon", "path": tag}],
+        )
 
 
 def build_bulk_r_image(tag: str, *, run_dir: Path) -> None:

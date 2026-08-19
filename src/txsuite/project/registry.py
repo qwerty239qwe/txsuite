@@ -10,14 +10,18 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from txsuite.bulk import CONTRAST_MODES, PSEUDO_ALIGNERS, SALMON_LIBTYPES
 from txsuite.runtime import TxSuiteError
+from txsuite.single_cell import ALEVIN_CHEMISTRIES, ALEVIN_RESOLUTIONS
 
 from .adapters.bulk import (
     bulk_de_command,
     bulk_enrichment_command,
     bulk_rnaseq_command,
+    bulk_salmon_command,
 )
 from .adapters.single_cell import (
+    alevin_command,
     pseudobulk_command,
     pseudobulk_de_command,
     scanpy_command,
@@ -201,6 +205,19 @@ def _choice(*choices: str) -> ParameterValidator:
     return validate
 
 
+def _optional_choice(*choices: str) -> ParameterValidator:
+    """Accept one of ``choices`` or ``None`` for an opt-in upstream setting."""
+
+    def validate(value: Any) -> str | None:
+        if value is None:
+            return None
+        if value not in choices:
+            raise ValueError(f"must be null or one of: {', '.join(choices)}")
+        return value
+
+    return validate
+
+
 def _optional_string(value: Any) -> str | None:
     if value is None:
         return None
@@ -308,10 +325,63 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
             "counts": OutputPolicy("file", non_empty=True),
             "multiqc_report": OutputPolicy("file", non_empty=True),
         },
-        defaults={"params_file": None, "nextflow_config": None},
-        validators=_PATH_OPTIONS,
+        defaults={
+            "params_file": None,
+            "nextflow_config": None,
+            "pseudo_aligner": None,
+            "skip_alignment": False,
+            "salmon_index": None,
+        },
+        validators={
+            **_PATH_OPTIONS,
+            "pseudo_aligner": _optional_choice(*PSEUDO_ALIGNERS),
+            "skip_alignment": _boolean,
+            "salmon_index": _optional_path,
+        },
         required_executables=("nextflow",),
         command_factory=bulk_rnaseq_command,
+        supports_resume=True,
+    ),
+    StageSpec(
+        id="bulk.salmon",
+        modality="bulk",
+        maturity="ready",
+        inputs={"samplesheet": "bulk.rnaseq-samplesheet"},
+        outputs={
+            "results": "bulk.salmon-results",
+            "counts": "bulk.gene-counts",
+            "tx_counts": "bulk.transcript-counts",
+        },
+        output_policies={
+            "results": OutputPolicy("directory", non_empty=True),
+            "counts": OutputPolicy("file", non_empty=True),
+            "tx_counts": OutputPolicy("file", non_empty=True),
+        },
+        defaults={
+            "fasta": None,
+            "gtf": None,
+            "salmon_index": None,
+            "tx2gene": None,
+            "image": None,
+            "libtype": "A",
+            "kmer_len": 31,
+            "gencode": False,
+            "nextflow_config": None,
+        },
+        validators={
+            "fasta": _optional_path,
+            "gtf": _optional_path,
+            "salmon_index": _optional_path,
+            "tx2gene": _optional_path,
+            "image": _optional_string,
+            "libtype": _choice(*SALMON_LIBTYPES),
+            "kmer_len": _positive_int,
+            "gencode": _boolean,
+            "nextflow_config": _optional_path,
+        },
+        required_executables=("nextflow",),
+        required_images=("images.salmon",),
+        command_factory=bulk_salmon_command,
         supports_resume=True,
     ),
     StageSpec(
@@ -322,10 +392,12 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         outputs={
             "results": "bulk.differential-expression-results",
             "de_results": "bulk.differential-expression-table",
+            "contrast_index": "bulk.differential-expression-index",
         },
         output_policies={
             "results": OutputPolicy("directory", non_empty=True),
             "de_results": OutputPolicy("file", non_empty=True),
+            "contrast_index": OutputPolicy("file", non_empty=True),
         },
         defaults={
             "method": "deseq2",
@@ -334,6 +406,7 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
             "padj": 0.05,
             "lfc": 1.0,
             "top_genes": 50,
+            "contrasts": "single",
         },
         validators={
             "method": _choice("deseq2", "edger", "limma"),
@@ -345,6 +418,7 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
             "padj": _probability,
             "lfc": _non_negative_number,
             "top_genes": _positive_int,
+            "contrasts": _choice(*CONTRAST_MODES),
         },
         required_executables=("docker",),
         required_images=("images.bulk_r",),
@@ -406,14 +480,60 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
             "protocol": None,
             "params_file": None,
             "nextflow_config": None,
+            "simpleaf_index": None,
+            "txp2gene": None,
         },
         validators={
             "aligner": _choice("simpleaf", "star", "cellranger"),
             "protocol": _optional_string,
+            "simpleaf_index": _optional_path,
+            "txp2gene": _optional_path,
             **_PATH_OPTIONS,
         },
         required_executables=("nextflow",),
         command_factory=scrnaseq_command,
+        supports_resume=True,
+    ),
+    StageSpec(
+        id="single-cell.alevin",
+        modality="single-cell",
+        maturity="ready",
+        inputs={"samplesheet": "single-cell.scrnaseq-samplesheet"},
+        outputs={
+            "results": "single-cell.alevin-results",
+            "matrix": "single-cell.matrix",
+        },
+        output_policies={
+            "results": OutputPolicy("directory", non_empty=True),
+            "matrix": OutputPolicy("file", non_empty=True),
+        },
+        defaults={
+            "fasta": None,
+            "gtf": None,
+            "simpleaf_index": None,
+            "whitelist": None,
+            "image": None,
+            "single_cell_image": None,
+            "chemistry": "10xv3",
+            "resolution": "cr-like",
+            "rlen": 91,
+            "nextflow_config": None,
+        },
+        validators={
+            "fasta": _optional_path,
+            "gtf": _optional_path,
+            "simpleaf_index": _optional_path,
+            "whitelist": _optional_path,
+            "image": _optional_string,
+            "single_cell_image": _optional_string,
+            "chemistry": _choice(*ALEVIN_CHEMISTRIES),
+            "resolution": _choice(*ALEVIN_RESOLUTIONS),
+            "rlen": _positive_int,
+            "nextflow_config": _optional_path,
+        },
+        required_executables=("nextflow",),
+        required_images=("images.salmon", "images.single_cell_python"),
+        command_factory=alevin_command,
         supports_resume=True,
     ),
     StageSpec(

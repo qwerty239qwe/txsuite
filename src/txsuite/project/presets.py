@@ -44,6 +44,17 @@ PROJECT_PRESETS: tuple[ProjectPreset, ...] = (
         ),
     ),
     ProjectPreset(
+        name="bulk-salmon",
+        description="Native salmon quantification followed by differential expression",
+        modality="bulk",
+        files=(
+            "README.md",
+            "metadata.tsv",
+            "samplesheet.csv",
+            "workflow.toml",
+        ),
+    ),
+    ProjectPreset(
         name="scrnaseq",
         description="nf-core/scRNA-seq quantification followed by Scanpy analysis",
         modality="single-cell",
@@ -51,6 +62,16 @@ PROJECT_PRESETS: tuple[ProjectPreset, ...] = (
             "README.md",
             "samplesheet.csv",
             "scrnaseq-params.json",
+            "workflow.toml",
+        ),
+    ),
+    ProjectPreset(
+        name="scrnaseq-alevin",
+        description="Native simpleaf/alevin-fry quantification followed by Scanpy analysis",
+        modality="single-cell",
+        files=(
+            "README.md",
+            "samplesheet.csv",
             "workflow.toml",
         ),
     ),

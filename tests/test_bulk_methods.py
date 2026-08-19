@@ -48,7 +48,7 @@ class BulkMethodTests(unittest.TestCase):
                 top_genes=20,
             )
             self.assertIn("/opt/txsuite/deseq2.R", de)
-            self.assertEqual(de[-6:], ["0.01", "1.5", "20", "batch", "", ""])
+            self.assertEqual(de[-7:], ["0.01", "1.5", "20", "batch", "", "", "single"])
 
             advanced = differential_expression_command(
                 method="deseq2",
@@ -60,8 +60,12 @@ class BulkMethodTests(unittest.TestCase):
                 coefficient="batch2.conditiontreated",
             )
             self.assertEqual(
-                advanced[-2:],
-                ["~ batch + condition + batch:condition", "batch2.conditiontreated"],
+                advanced[-3:],
+                [
+                    "~ batch + condition + batch:condition",
+                    "batch2.conditiontreated",
+                    "single",
+                ],
             )
 
             for method in ("edger", "limma"):

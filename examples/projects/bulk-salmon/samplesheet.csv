@@ -1,0 +1,5 @@
+sample,fastq_1,fastq_2
+control_1,data/control_1_R1.fastq.gz,data/control_1_R2.fastq.gz
+control_2,data/control_2_R1.fastq.gz,data/control_2_R2.fastq.gz
+treated_1,data/treated_1_R1.fastq.gz,data/treated_1_R2.fastq.gz
+treated_2,data/treated_2_R1.fastq.gz,data/treated_2_R2.fastq.gz

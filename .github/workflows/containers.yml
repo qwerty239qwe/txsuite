@@ -18,6 +18,8 @@ jobs:
         include:
           - image: bulk-r
             context: src/txsuite/resources/bulk_r
+          - image: salmon
+            context: src/txsuite/resources/salmon
           - image: single-cell-python
             context: src/txsuite/resources/single_cell_python
           - image: spatial-python

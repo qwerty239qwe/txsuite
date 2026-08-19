@@ -44,11 +44,19 @@ remain external release blockers.
 
 - nf-core workflows use their own pinned process containers; TxSuite does not
   rebuild them.
-- TxSuite builds only the downstream images it owns: `bulk-r`,
-  `single-cell-python`, and `spatial-python`.
+- TxSuite builds only the images it owns: `bulk-r`, `salmon`,
+  `single-cell-python`, and `spatial-python`. `salmon` is the one owned image
+  that runs a raw-data step rather than a downstream analysis; TxSuite owns it
+  because the native `bulk.salmon` and `single-cell.alevin` DAGs are its own
+  pipelines, not nf-core pipelines with their own pinned process containers.
 - Cell Ranger and Space Ranger are installed and licensed by the user; TxSuite
   only discovers and invokes them.
 - `txsuite env doctor`, `env list`, and `env build` form the environment API.
+- The native quantification DAGs are a lightweight alternative to a full nf-core
+  run, not a replacement: they quantify, they do not trim, align, or aggregate
+  QC. nf-core/rnaseq also runs salmon internally, and its salmon settings are
+  exposed on `bulk.rnaseq` through `pseudo_aligner`, `skip_alignment`, and
+  `salmon_index`.
 - Docker is the workstation default and Apptainer is the HPC target.
 
 ## Configuration contract

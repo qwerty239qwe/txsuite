@@ -7,10 +7,15 @@ Validated versions for the 0.1 development line:
 | TxSuite CLI | Python 3.11–3.13 | CI |
 | Project workflow schema | v1 | runtime and packaged JSON Schema parity tested |
 | Project execution profiles | Docker, Apptainer | schema-supported |
-| Project presets | bulk-rnaseq, scrnaseq, scrnaseq-pseudobulk | packaged-resource and planning tests |
+| Project presets | bulk-rnaseq, bulk-salmon, scrnaseq, scrnaseq-alevin, scrnaseq-pseudobulk | packaged-resource and planning tests |
 | nf-core/rnaseq | 3.26.0 | launcher tested; external raw-data smoke pending |
 | nf-core/scrnaseq | 4.2.0 | launcher tested; external raw-data smoke pending |
 | Cell Ranger (native `mkref`+`count` DAG) | user-installed | stub DAG tested in CI; licensed smoke pending |
+| Salmon (native `index`+`quant` DAG) | 2.5.1 | stub DAG tested in CI; real FASTQ smoke pending |
+| simpleaf (native `index`+`quant` DAG) | 0.28.0 | stub DAG tested in CI; real FASTQ smoke pending |
+| alevin-fry | 0.18.0 | USA-mode matrix-market to `.h5ad` conversion smoke passed |
+| piscem | 0.22.1 | installed in `txsuite/salmon`; exercised through simpleaf |
+| gffread | 0.12.9 | gentrome and transcript-to-gene derivation |
 | Space Ranger | 4.1.0 | external, user-installed; licensed smoke pending |
 | Spacemake | 0.9.1b | experimental pass-through |
 | DESeq2 | 1.52.0 / Bioconductor 3.23 | covariate/formula DE and plot smoke passed |
@@ -36,6 +41,13 @@ downloads run in CI.
 - `bulk.rnaseq` and `single-cell.scrnaseq` are selected, pinned integrations.
   Their planners, deferred artifacts, and release-specific result adapters are
   tested, but real FASTQ Docker and Apptainer smokes remain release blockers.
+- `bulk.de` expands contrasts from the design column when `contrasts` is
+  `vs-reference` or `all-pairs`, capped at 50 comparisons. The comparison-set
+  logic is unit-tested; the expanded DESeq2, edgeR, and limma runs themselves
+  are covered only by the existing single-contrast container smokes.
+- `bulk.salmon` and `single-cell.alevin` are native DAGs TxSuite owns end to
+  end, so their artifact paths are known at plan time and need no release
+  adapter. Their control plane and stubs are tested; real FASTQ runs are not.
 - `bulk.de`, `bulk.enrichment`, `single-cell.scanpy`,
   `single-cell.pseudobulk`, and `single-cell.pseudobulk-de` are the currently
   registered downstream stage types. A compatible output type is required for
