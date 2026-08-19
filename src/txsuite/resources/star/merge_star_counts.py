@@ -116,10 +116,18 @@ def merge(
     inferred: set[str] = set()
 
     for quant_dir in quant_dirs:
-        sample = quant_dir.name
+        # Accepts either a per-sample directory or STAR's prefixed file, since
+        # the DAG names outputs "<sample>.ReadsPerGene.out.tab" so that they stay
+        # unique at the top level of a task directory.
+        if quant_dir.is_dir():
+            sample, path = quant_dir.name, quant_dir / COUNTS_FILE
+        else:
+            sample = quant_dir.name
+            if sample.endswith(f".{COUNTS_FILE}"):
+                sample = sample[: -len(COUNTS_FILE) - 1]
+            path = quant_dir
         if sample in per_sample:
             raise MergeError(f"Duplicate sample name: {sample}")
-        path = quant_dir / COUNTS_FILE if quant_dir.is_dir() else quant_dir
         if not path.is_file():
             raise MergeError(f"No {COUNTS_FILE} under {quant_dir}")
         genes, summary = read_star_counts(path)

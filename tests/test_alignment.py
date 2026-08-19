@@ -352,13 +352,14 @@ class PackagedAlignResourceTests(unittest.TestCase):
         self.assertEqual(len(processes), 3)
         self.assertEqual(text.count("stub:"), len(processes))
         self.assertIn("--quantMode GeneCounts", text)
-        # Each sample's BAM has the same STAR-assigned filename, so both the BAM
-        # and its index must publish under a per-sample directory.
-        self.assertIn(
-            'publishDir "${params.outdir}/alignments/${sample}", mode: \'copy\'', text
-        )
-        self.assertIn("pattern: '*/*.bam'", text)
-        self.assertIn("pattern: '*/*.out'", text)
+        # STAR is prefixed with the sample so every output is unique at the top
+        # level of the task directory. Writing into a per-sample subdirectory
+        # made the directory the single collected output, and publishDir then
+        # published neither the BAM nor the log.
+        self.assertIn("--outFileNamePrefix ${sample}.", text)
+        self.assertIn("pattern: '*.bam'", text)
+        self.assertIn("pattern: '*.Log.final.out'", text)
+        self.assertNotIn("stageAs: 'quant/*'", text)
         self.assertTrue(
             resources.files("txsuite.resources.star")
             .joinpath("merge_star_counts.py")

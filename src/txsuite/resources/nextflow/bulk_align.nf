@@ -40,5 +40,5 @@ workflow {
 
     STAR_ALIGN(index_ch.first(), reads_ch)
     SAMTOOLS_INDEX(STAR_ALIGN.out.bam)
-    MERGE_GENE_COUNTS(STAR_ALIGN.out.quant.map { it[1] }.collect())
+    MERGE_GENE_COUNTS(STAR_ALIGN.out.counts.collect())
 }

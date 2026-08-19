@@ -2,46 +2,48 @@ process STAR_ALIGN {
     tag "$sample"
     label 'star'
     container params.star_image
-    publishDir "${params.outdir}/alignments", mode: 'copy', pattern: '*/*.bam'
-    publishDir "${params.outdir}/logs", mode: 'copy', pattern: '*/*.out'
+    // STAR is told to prefix its outputs with the sample, so every file is
+    // unique and lives at the top level of the task directory. Writing into a
+    // per-sample subdirectory instead made the whole directory the single
+    // collected output, and publishDir then matched neither the BAM nor the log.
+    publishDir "${params.outdir}/alignments", mode: 'copy', pattern: '*.bam'
+    publishDir "${params.outdir}/logs", mode: 'copy', pattern: '*.Log.final.out'
 
     input:
     path index
     tuple val(sample), path(reads)
 
     output:
-    tuple val(sample), path("${sample}/Aligned.sortedByCoord.out.bam"), emit: bam
-    tuple val(sample), path("${sample}"), emit: quant
-    path "${sample}/Log.final.out", emit: log
+    tuple val(sample), path("${sample}.Aligned.sortedByCoord.out.bam"), emit: bam
+    path "${sample}.ReadsPerGene.out.tab", emit: counts
+    path "${sample}.Log.final.out", emit: log
 
     script:
     def read_list = reads instanceof List ? reads : [reads]
     def gzipped = read_list[0].name.endsWith('.gz') ? '--readFilesCommand zcat' : ''
     def two_pass = params.star_two_pass ? '--twopassMode Basic' : ''
     """
-    mkdir -p ${sample}
     STAR --genomeDir ${index} \
         --readFilesIn ${read_list.join(' ')} \
         --runThreadN ${task.cpus} \
-        --outFileNamePrefix ${sample}/ \
+        --outFileNamePrefix ${sample}. \
         --outSAMtype BAM SortedByCoordinate \
         --quantMode GeneCounts ${gzipped} ${two_pass}
-    test -s ${sample}/Aligned.sortedByCoord.out.bam
-    test -s ${sample}/ReadsPerGene.out.tab
+    test -s ${sample}.Aligned.sortedByCoord.out.bam
+    test -s ${sample}.ReadsPerGene.out.tab
     """
 
     stub:
     """
-    mkdir -p ${sample}
-    printf 'stub-bam\\n' > ${sample}/Aligned.sortedByCoord.out.bam
-    printf 'stub log\\n' > ${sample}/Log.final.out
-    cat > ${sample}/ReadsPerGene.out.tab <<STUB
-N_unmapped	100	100	100
-N_multimapping	50	50	50
-N_noFeature	900	900	900
-N_ambiguous	10	10	10
-gene1	1000	20	980
-gene2	500	10	490
+    printf 'stub-bam\\n' > ${sample}.Aligned.sortedByCoord.out.bam
+    printf 'stub log\\n' > ${sample}.Log.final.out
+    cat > ${sample}.ReadsPerGene.out.tab <<STUB
+N_unmapped\t100\t100\t100
+N_multimapping\t50\t50\t50
+N_noFeature\t900\t900\t900
+N_ambiguous\t10\t10\t10
+gene1\t1000\t20\t980
+gene2\t500\t10\t490
 STUB
     """
 }
@@ -50,9 +52,9 @@ process SAMTOOLS_INDEX {
     tag "$sample"
     label 'star'
     container params.star_image
-    // Every sample's BAM is named Aligned.sortedByCoord.out.bam, so the index
-    // must publish under the sample directory or samples overwrite each other.
-    publishDir "${params.outdir}/alignments/${sample}", mode: 'copy'
+    // The BAM name already carries the sample, so indexes cannot collide and
+    // the index publishes flat alongside it.
+    publishDir "${params.outdir}/alignments", mode: 'copy'
 
     input:
     tuple val(sample), path(bam)
@@ -78,7 +80,7 @@ process MERGE_GENE_COUNTS {
     publishDir "${params.outdir}", mode: 'copy'
 
     input:
-    path quant_dirs, stageAs: 'quant/*'
+    path counts_files, stageAs: 'counts_in/*'
 
     output:
     path 'counts/gene_counts.tsv', emit: counts
@@ -90,7 +92,7 @@ process MERGE_GENE_COUNTS {
     // the evidence is published beside the matrix either way.
     def pinned = params.star_strandedness == 'auto' ? '' : "--strandedness ${params.star_strandedness}"
     """
-    python /opt/txsuite/merge_star_counts.py quant/* --outdir counts ${pinned}
+    python /opt/txsuite/merge_star_counts.py counts_in/* --outdir counts ${pinned}
     """
 
     stub:
