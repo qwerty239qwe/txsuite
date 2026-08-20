@@ -10,7 +10,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "execution": {"profile": "docker"},
     "images": {
         "bulk_r": "txsuite/bulk-r:0.2.0",
+        "genesets": "txsuite/genesets:0.2.0",
         "salmon": "txsuite/salmon:0.2.0",
+        "star": "txsuite/star:0.2.0",
         "single_cell_python": "txsuite/single-cell-python:0.2.0",
         "spatial_python": "txsuite/spatial-python:0.2.0",
     },
@@ -18,6 +20,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "bulk": {"name": "nf-core/rnaseq", "release": "3.26.0"},
         "single_cell": {"name": "nf-core/scrnaseq", "release": "4.2.0"},
         "spatial": {"name": "spaceranger", "release": "4.1.0"},
+        "variants": {"name": "nf-core/rnavar", "release": "1.3.0"},
     },
 }
 
@@ -26,7 +29,9 @@ profile = "docker"
 
 [images]
 bulk_r = "txsuite/bulk-r:0.2.0"
+genesets = "txsuite/genesets:0.2.0"
 salmon = "txsuite/salmon:0.2.0"
+star = "txsuite/star:0.2.0"
 single_cell_python = "txsuite/single-cell-python:0.2.0"
 spatial_python = "txsuite/spatial-python:0.2.0"
 
@@ -41,6 +46,10 @@ release = "4.2.0"
 [pipelines.spatial]
 name = "spaceranger"
 release = "4.1.0"
+
+[pipelines.variants]
+name = "nf-core/rnavar"
+release = "1.3.0"
 """
 
 
@@ -87,7 +96,7 @@ def _validate(config: dict[str, Any]) -> None:
     pipelines = config.get("pipelines")
     if not isinstance(pipelines, dict):
         raise ConfigError("pipelines must be a table")
-    for modality in ("bulk", "single_cell", "spatial"):
+    for modality in ("bulk", "single_cell", "spatial", "variants"):
         pipeline = pipelines.get(modality)
         if not isinstance(pipeline, dict) or not all(
             isinstance(pipeline.get(field), str) and pipeline[field]
@@ -96,7 +105,14 @@ def _validate(config: dict[str, Any]) -> None:
             raise ConfigError(
                 f"pipelines.{modality} requires non-empty name and release"
             )
-    for image in ("bulk_r", "salmon", "single_cell_python", "spatial_python"):
+    for image in (
+        "bulk_r",
+        "genesets",
+        "salmon",
+        "single_cell_python",
+        "spatial_python",
+        "star",
+    ):
         if (
             not isinstance(config.get("images", {}).get(image), str)
             or not config["images"][image]

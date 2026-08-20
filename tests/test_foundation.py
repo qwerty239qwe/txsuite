@@ -14,7 +14,8 @@ from txsuite.config import load_config
 class FoundationTest(unittest.TestCase):
     def test_catalog_filter_and_project_config_override(self) -> None:
         self.assertEqual(
-            [tool.name for tool in select_tools("bulk", "alignment")], ["STAR"]
+            [tool.name for tool in select_tools("bulk", "alignment")],
+            ["STAR", "STAR two-pass + GeneCounts (native Nextflow DAG)"],
         )
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "txsuite.toml"
@@ -37,7 +38,9 @@ class FoundationTest(unittest.TestCase):
             output.getvalue().splitlines(),
             [
                 "bulk-r\ttxsuite/bulk-r:0.2.0",
+                "genesets\ttxsuite/genesets:0.2.0",
                 "salmon\ttxsuite/salmon:0.2.0",
+                "star\ttxsuite/star:0.2.0",
                 "single-cell-python\ttxsuite/single-cell-python:0.2.0",
                 "spatial-python\ttxsuite/spatial-python:0.2.0",
             ],

@@ -10,15 +10,31 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from txsuite.alignment import STRANDEDNESS
 from txsuite.bulk import CONTRAST_MODES, PSEUDO_ALIGNERS, SALMON_LIBTYPES
+from txsuite.genesets import (
+    GENESET_KEYTYPES,
+    GENESET_SOURCES,
+    GENESET_SPECIES,
+    GO_ASPECTS,
+)
 from txsuite.runtime import TxSuiteError
-from txsuite.single_cell import ALEVIN_CHEMISTRIES, ALEVIN_RESOLUTIONS
+from txsuite.single_cell import (
+    ALEVIN_CHEMISTRIES,
+    ALEVIN_RESOLUTIONS,
+    INTEGRATION_METHODS,
+)
+from txsuite.variants import ANNOTATION_TOOLS
 
 from .adapters.bulk import (
+    bulk_align_command,
     bulk_de_command,
     bulk_enrichment_command,
+    bulk_genesets_command,
     bulk_rnaseq_command,
+    bulk_rnavar_command,
     bulk_salmon_command,
+    bulk_star_reference_command,
 )
 from .adapters.single_cell import (
     alevin_command,
@@ -74,6 +90,7 @@ class StageSpec:
     output_policies: Mapping[str, OutputPolicy | Mapping[str, Any]] = field(
         default_factory=dict
     )
+    optional_inputs: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         canonical = self.id if self.uses is None else self.uses
@@ -87,6 +104,14 @@ class StageSpec:
             raise TypeError("StageSpec command_factory must be callable")
         object.__setattr__(self, "uses", canonical)
         object.__setattr__(self, "inputs", _freeze_contract(self.inputs, "input"))
+        optional_inputs = _freeze_contract(self.optional_inputs, "optional input")
+        overlapping = sorted(set(optional_inputs) & set(self.inputs))
+        if overlapping:
+            raise ValueError(
+                "Stage inputs cannot be both required and optional: "
+                + ", ".join(overlapping)
+            )
+        object.__setattr__(self, "optional_inputs", optional_inputs)
         outputs = _freeze_contract(self.outputs, "output")
         object.__setattr__(self, "outputs", outputs)
         object.__setattr__(
@@ -98,6 +123,12 @@ class StageSpec:
         object.__setattr__(self, "validators", MappingProxyType(dict(self.validators)))
         object.__setattr__(self, "required_executables", tuple(self.required_executables))
         object.__setattr__(self, "required_images", tuple(self.required_images))
+
+    @property
+    def accepted_inputs(self) -> Mapping[str, str]:
+        """Every input this stage understands, required and optional alike."""
+
+        return MappingProxyType({**self.inputs, **self.optional_inputs})
 
     def build_command(self, context: Mapping[str, Any] | object) -> list[str]:
         """Validate/default context parameters, then invoke the command factory."""
@@ -218,6 +249,38 @@ def _optional_choice(*choices: str) -> ParameterValidator:
     return validate
 
 
+def _geneset_sources(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str) or not isinstance(value, (list, tuple)):
+        raise ValueError("must be a list of gene-set source names")
+    sources = tuple(str(item) for item in value)
+    if not sources:
+        raise ValueError("must name at least one source")
+    unknown = sorted(set(sources) - set(GENESET_SOURCES))
+    if unknown:
+        raise ValueError(f"must contain only: {', '.join(GENESET_SOURCES)}")
+    if len(set(sources)) != len(sources):
+        raise ValueError("must not repeat a source")
+    return sources
+
+
+def _annotation_tools(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str) or not isinstance(value, (list, tuple)):
+        raise ValueError("must be a list of annotation tool names")
+    tools = tuple(str(item) for item in value)
+    unknown = sorted(set(tools) - set(ANNOTATION_TOOLS))
+    if unknown:
+        raise ValueError(f"must contain only: {', '.join(ANNOTATION_TOOLS)}")
+    if len(set(tools)) != len(tools):
+        raise ValueError("must not repeat a tool")
+    return tools
+
+
+def _optional_positive_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    return _positive_int(value)
+
+
 def _optional_string(value: Any) -> str | None:
     if value is None:
         return None
@@ -238,6 +301,12 @@ def _identifier(value: Any) -> str:
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", value):
         raise ValueError("must be a simple column name")
     return value
+
+
+def _optional_identifier(value: Any) -> str | None:
+    if value is None:
+        return None
+    return _identifier(value)
 
 
 def _factor_level(value: Any) -> str:
@@ -346,7 +415,11 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         id="bulk.salmon",
         modality="bulk",
         maturity="ready",
-        inputs={"samplesheet": "bulk.rnaseq-samplesheet"},
+        # A weaker contract than bulk.rnaseq-samplesheet: selective alignment
+        # infers strandedness, so no strandedness column is required. Typing it
+        # separately stops a salmon sheet being wired into bulk.rnaseq, where
+        # nf-core would reject it.
+        inputs={"samplesheet": "bulk.fastq-samplesheet"},
         outputs={
             "results": "bulk.salmon-results",
             "counts": "bulk.gene-counts",
@@ -382,6 +455,149 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         required_executables=("nextflow",),
         required_images=("images.salmon",),
         command_factory=bulk_salmon_command,
+        supports_resume=True,
+    ),
+    StageSpec(
+        id="bulk.align",
+        modality="bulk",
+        maturity="ready",
+        inputs={
+            "samplesheet": "bulk.fastq-samplesheet",
+            "star_index": "bulk.star-index",
+        },
+        outputs={
+            "results": "bulk.align-results",
+            "alignments": "bulk.alignment-bams",
+            "counts": "bulk.gene-counts",
+            "strandedness": "bulk.strandedness-report",
+            "logs": "bulk.alignment-logs",
+        },
+        output_policies={
+            "results": OutputPolicy("directory", non_empty=True),
+            "alignments": OutputPolicy("directory", non_empty=True),
+            "counts": OutputPolicy("file", non_empty=True),
+            "strandedness": OutputPolicy("file", non_empty=True),
+            "logs": OutputPolicy("directory", non_empty=True),
+        },
+        defaults={
+            "image": None,
+            "strandedness": "auto",
+            "two_pass": True,
+            "threads": 4,
+            "memory_gb": 32,
+            "nextflow_config": None,
+        },
+        validators={
+            "image": _optional_string,
+            "strandedness": _choice(*STRANDEDNESS),
+            "two_pass": _boolean,
+            "threads": _positive_int,
+            "memory_gb": _positive_int,
+            "nextflow_config": _optional_path,
+        },
+        required_executables=("nextflow",),
+        required_images=("images.star",),
+        command_factory=bulk_align_command,
+        supports_resume=True,
+    ),
+    StageSpec(
+        id="bulk.rnavar",
+        modality="bulk",
+        maturity="selected",
+        inputs={"samplesheet": "bulk.rnavar-samplesheet"},
+        # Supplying a prebuilt reference is optional: rnavar derives whatever is
+        # missing, so a project can wire ${ref.star_index} from
+        # bulk.star-reference to avoid rebuilding it on every run, or omit it.
+        optional_inputs={
+            "star_index": "bulk.star-index",
+            "fasta_fai": "reference.fasta-index",
+            "dict": "reference.sequence-dictionary",
+        },
+        outputs={
+            "results": "bulk.rnavar-results",
+            "variants": "bulk.variant-calls",
+            "multiqc_report": "qc.multiqc-report",
+        },
+        output_policies={
+            "results": OutputPolicy("directory", non_empty=True),
+            "variants": OutputPolicy("directory", non_empty=True),
+            "multiqc_report": OutputPolicy("file", non_empty=True),
+        },
+        defaults={
+            "genome": None,
+            "fasta": None,
+            "gtf": None,
+            "dbsnp": None,
+            "known_indels": None,
+            "skip_baserecalibration": False,
+            "tools": (),
+            "snpeff_cache": None,
+            "vep_cache": None,
+            "generate_gvcf": False,
+            "params_file": None,
+            "nextflow_config": None,
+        },
+        validators={
+            "genome": _optional_string,
+            "fasta": _optional_path,
+            "gtf": _optional_path,
+            "dbsnp": _optional_path,
+            "known_indels": _optional_path,
+            "skip_baserecalibration": _boolean,
+            "tools": _annotation_tools,
+            "snpeff_cache": _optional_path,
+            "vep_cache": _optional_path,
+            "generate_gvcf": _boolean,
+            "params_file": _optional_path,
+            "nextflow_config": _optional_path,
+        },
+        required_executables=("nextflow",),
+        command_factory=bulk_rnavar_command,
+        supports_resume=True,
+    ),
+    StageSpec(
+        id="bulk.star-reference",
+        modality="bulk",
+        maturity="ready",
+        inputs={
+            "fasta": "reference.genome-fasta",
+            "gtf": "reference.annotation-gtf",
+        },
+        outputs={
+            "results": "bulk.star-reference-results",
+            "star_index": "bulk.star-index",
+            "fasta_fai": "reference.fasta-index",
+            "dict": "reference.sequence-dictionary",
+            "manifest": "reference.index-manifest",
+        },
+        output_policies={
+            "results": OutputPolicy("directory", non_empty=True),
+            "star_index": OutputPolicy("directory", non_empty=True),
+            "fasta_fai": OutputPolicy("file", non_empty=True),
+            "dict": OutputPolicy("file", non_empty=True),
+            "manifest": OutputPolicy("file", non_empty=True),
+        },
+        defaults={
+            "image": None,
+            "read_length": 100,
+            "sjdb_overhang": None,
+            "threads": 4,
+            "memory_gb": 32,
+            "genome_sa_index_nbases": None,
+            "nextflow_config": None,
+        },
+        validators={
+            "image": _optional_string,
+            "read_length": _positive_int,
+            "sjdb_overhang": _optional_positive_int,
+            "threads": _positive_int,
+            "memory_gb": _positive_int,
+            "genome_sa_index_nbases": _optional_positive_int,
+            "nextflow_config": _optional_path,
+        },
+        required_executables=("nextflow",),
+        required_images=("images.star",),
+        command_factory=bulk_star_reference_command,
         supports_resume=True,
     ),
     StageSpec(
@@ -423,6 +639,50 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         required_executables=("docker",),
         required_images=("images.bulk_r",),
         command_factory=bulk_de_command,
+    ),
+    StageSpec(
+        id="bulk.genesets",
+        modality="bulk",
+        maturity="ready",
+        # No inputs: this stage fetches. It is the only stage that needs network
+        # access, which is why it is separate -- the GMT it writes is an ordinary
+        # artifact, so everything downstream stays offline and reproducible.
+        inputs={},
+        outputs={
+            "results": "bulk.geneset-results",
+            "gmt": "gene-sets.gmt",
+            "mapping": "bulk.id-mapping-report",
+            "provenance": "bulk.geneset-provenance",
+        },
+        output_policies={
+            "results": OutputPolicy("directory", non_empty=True),
+            "gmt": OutputPolicy("file", non_empty=True),
+            "mapping": OutputPolicy("file", non_empty=True),
+            "provenance": OutputPolicy("file", non_empty=True),
+        },
+        defaults={
+            "image": None,
+            "sources": ("go",),
+            "species": "human",
+            "keytype": "symbol",
+            "aspect": "biological_process",
+            "min_size": 10,
+            "max_size": 500,
+            "min_mapped_fraction": 0.5,
+        },
+        validators={
+            "image": _optional_string,
+            "sources": _geneset_sources,
+            "species": _choice(*GENESET_SPECIES),
+            "keytype": _choice(*GENESET_KEYTYPES),
+            "aspect": _choice(*GO_ASPECTS),
+            "min_size": _positive_int,
+            "max_size": _positive_int,
+            "min_mapped_fraction": _probability,
+        },
+        required_executables=("docker",),
+        required_images=("images.genesets",),
+        command_factory=bulk_genesets_command,
     ),
     StageSpec(
         id="bulk.enrichment",
@@ -541,6 +801,9 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
         modality="single-cell",
         maturity="ready",
         inputs={"input": "single-cell.matrix"},
+        # Cell metadata is optional because the batch column may already be
+        # present in the matrix's obs; analysis_command mounts it only when given.
+        optional_inputs={"metadata": "single-cell.cell-metadata"},
         outputs={"h5ad": "single-cell.h5ad"},
         output_policies={"h5ad": OutputPolicy("file", non_empty=True)},
         defaults={
@@ -549,6 +812,9 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
             "min_cells": 3,
             "max_mito_pct": 20.0,
             "resolution": 1.0,
+            "integration": "none",
+            "batch_column": None,
+            "barcode_column": "barcode",
         },
         validators={
             **_IMAGE_OPTION,
@@ -556,6 +822,9 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
             "min_cells": _non_negative_int,
             "max_mito_pct": _percentage,
             "resolution": _positive_number,
+            "integration": _choice(*INTEGRATION_METHODS),
+            "batch_column": _optional_identifier,
+            "barcode_column": _identifier,
         },
         required_executables=("docker",),
         required_images=("images.single_cell_python",),

@@ -80,6 +80,14 @@ def input_path(inputs: Mapping[str, Any], name: str) -> Path:
         raise TxSuiteError(f"Stage input {name!r} does not contain a filesystem path") from exc
 
 
+def optional_input_path(inputs: Mapping[str, Any], name: str) -> Path | None:
+    """Resolve an optional input, returning ``None`` when it was not supplied."""
+
+    if name not in inputs:
+        return None
+    return input_path(inputs, name)
+
+
 def configured_image(
     config: Mapping[str, Any], params: Mapping[str, Any], image_key: str
 ) -> str:
@@ -101,4 +109,5 @@ __all__ = [
     "configured_image",
     "context_value",
     "input_path",
+    "optional_input_path",
 ]

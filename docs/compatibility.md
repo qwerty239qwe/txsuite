@@ -7,9 +7,13 @@ Validated versions for the 0.1 development line:
 | TxSuite CLI | Python 3.11–3.13 | CI |
 | Project workflow schema | v1 | runtime and packaged JSON Schema parity tested |
 | Project execution profiles | Docker, Apptainer | schema-supported |
-| Project presets | bulk-rnaseq, bulk-salmon, scrnaseq, scrnaseq-alevin, scrnaseq-pseudobulk | packaged-resource and planning tests |
+| Project presets | bulk-rnaseq, bulk-salmon, bulk-align, bulk-rnavar, scrnaseq, scrnaseq-alevin, scrnaseq-pseudobulk | packaged-resource and planning tests |
 | nf-core/rnaseq | 3.26.0 | launcher tested; external raw-data smoke pending |
 | nf-core/scrnaseq | 4.2.0 | launcher tested; external raw-data smoke pending |
+| nf-core/rnavar | 1.3.0 | launcher and artifact adapter tested; pipeline never run in CI |
+| GATK | 4.6.2.0 | packaged in `txsuite/star`; sequence dictionary only |
+| STAR | 2.7.11b | native reference and alignment DAGs; stubs tested in CI |
+| samtools | 1.24 | FASTA indexing in the reference DAG |
 | Cell Ranger (native `mkref`+`count` DAG) | user-installed | stub DAG tested in CI; licensed smoke pending |
 | Salmon (native `index`+`quant` DAG) | 2.5.1 | stub DAG tested in CI; real FASTQ smoke pending |
 | simpleaf (native `index`+`quant` DAG) | 0.28.0 | stub DAG tested in CI; real FASTQ smoke pending |
@@ -22,8 +26,9 @@ Validated versions for the 0.1 development line:
 | edgeR | 4.10.1 / Bioconductor 3.23 | formula-capable quasi-likelihood Docker smoke passed |
 | limma | 3.68.4 / Bioconductor 3.23 | formula-capable voom Docker smoke passed |
 | clusterProfiler | 4.20.0 / Bioconductor 3.23 | GMT ORA and GSEA smokes passed |
+| biodbs | 0.4.1 | gene-set fetching; artifact rendering unit tested, live APIs not exercised in CI |
 | Scanpy | 1.12.2 / Python 3.12 | count-safe configurable stages, QC, Scrublet, batch-aware HVGs, Leiden markers, and grouped pseudobulk Docker smoke passed |
-| Harmonypy | 2.0.0 | PCA integration Docker smoke passed |
+| Harmonypy | 2.0.0 | PCA integration Docker smoke passed; reachable from `single-cell.scanpy` |
 | SpatialData | 0.8.0 | synthetic Docker smoke passed |
 | spatialdata-io | 0.7.1 | synthetic Docker smoke passed |
 | Squidpy | 1.8.3 | synthetic Docker smoke passed |
@@ -45,6 +50,23 @@ downloads run in CI.
   `vs-reference` or `all-pairs`, capped at 50 comparisons. The comparison-set
   logic is unit-tested; the expanded DESeq2, edgeR, and limma runs themselves
   are covered only by the existing single-contrast container smokes.
+- `bulk.rnavar` is a pinned nf-core launcher. Its `variants` artifact is the
+  `variant_calling/` directory, which resolves for any sample count; a
+  per-sample VCF contract would fail postflight on multi-sample runs.
+- `bulk.genesets` queries GO, KEGG, and Reactome over the network and is the
+  only stage that does. Its GMT, mapping report, and provenance record are
+  artifacts like any other, but the upstream databases are not version-pinned:
+  a re-fetch can legitimately change the collection, which `sources.json`
+  records rather than prevents.
+- `bulk.align` infers library strandedness from STAR's forward/reverse split
+  and refuses ambiguous or mutually inconsistent samples. The inference is unit
+  tested against synthetic count tables; no real FASTQ has been aligned in CI.
+- `bulk.star-reference` builds indexes TxSuite owns; `bulk.rnavar` can reuse
+  them through optional inputs or let rnavar derive its own. The index and
+  dictionary follow the caller's FASTA basename, which is how GATK locates them.
+- Native DAGs run under Apptainer only when their owned images are pullable from
+  a registry; Apptainer cannot use an image that `txsuite env build` produced
+  locally in the Docker daemon.
 - `bulk.salmon` and `single-cell.alevin` are native DAGs TxSuite owns end to
   end, so their artifact paths are known at plan time and need no release
   adapter. Their control plane and stubs are tested; real FASTQ runs are not.

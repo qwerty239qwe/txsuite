@@ -49,7 +49,8 @@ Each `[[workflow.stages]]` has:
 
 Currently registered stage types are:
 
-- `bulk.rnaseq`, `bulk.salmon`, `bulk.de`, and `bulk.enrichment`;
+- `bulk.rnaseq`, `bulk.salmon`, `bulk.align`, `bulk.rnavar`,
+  `bulk.star-reference`, `bulk.de`, `bulk.genesets`, and `bulk.enrichment`;
 - `single-cell.scrnaseq`, `single-cell.alevin`, `single-cell.scanpy`,
   `single-cell.pseudobulk`, and `single-cell.pseudobulk-de`.
 
@@ -66,6 +67,140 @@ for `bulk.rnaseq` ahead of `bulk.de`; `single-cell.alevin` emits
 Use `txsuite project validate workflow.toml` instead of relying on this list:
 validation is also responsible for artifact types, required parameters,
 dependency cycles, backend compatibility, and future registry changes.
+
+## Gene sets for enrichment
+
+`bulk.enrichment` requires a GMT. `bulk.genesets` produces one from GO, KEGG,
+and Reactome so a project need not supply its own:
+
+```toml
+[[workflow.stages]]
+id = "genesets"
+uses = "bulk.genesets"
+
+[workflow.stages.params]
+sources = ["go", "kegg", "reactome"]
+species = "human"
+keytype = "ensembl"
+
+[[workflow.stages]]
+id = "enrichment"
+uses = "bulk.enrichment"
+depends_on = ["genesets"]
+
+[workflow.stages.inputs]
+de_results = "${differential.de_results}"
+genesets = "${genesets.gmt}"
+```
+
+The emitted GMT is the same `gene-sets.gmt` artifact type a hand-supplied file
+uses, so ORA and GSEA both keep running through clusterProfiler on one
+collection. `keytype` must match the identifiers in the differential-expression
+table.
+
+Each source returns members in its own namespace — KEGG in Entrez, GO in
+UniProt, Reactome in gene symbols — so each is translated from *its own* type
+into `keytype`, not from a single assumed one. `id-mapping.tsv` reports the
+native type and the mapped fraction per source, and the stage fails when any
+single source falls below `min_mapped_fraction`. Checking per source matters:
+one source mapping nothing can still sit above a combined average.
+
+**This is the only stage that uses the network at run time.** It is separate for
+exactly that reason: the collection becomes an ordinary artifact, so every
+downstream stage stays offline. `sources.json` records the fetch timestamp, the
+resolved parameters, and the `biodbs` version, which is what lets a result that
+differs months later be explained. Gene sets from live databases are not pinned
+the way a container digest is; re-fetching may legitimately produce a different
+collection.
+
+## Batch integration
+
+`single-cell.scanpy` can build the neighbor graph, clusters, and UMAP from
+Harmony-corrected principal components:
+
+```toml
+[workflow.stages.inputs]
+input = "${quantify.matrix}"
+metadata = "cell-metadata.tsv"   # optional
+
+[workflow.stages.params]
+integration = "harmony"
+batch_column = "batch"
+```
+
+`metadata` is an optional input: supply a cell-metadata TSV keyed by
+`barcode_column` when the batch assignment lives outside the matrix, or omit it
+when the column is already in the matrix's `obs`. `integration = "harmony"`
+requires `batch_column`, and the original PCA, normalized expression, and raw
+counts are left untouched.
+
+Harmony is opt-in because it can remove real biology when batch and condition
+are confounded. Default is `integration = "none"`.
+
+## Genome alignment
+
+`bulk.align` runs STAR two-pass against a prebuilt index and emits sorted BAMs,
+per-sample logs, and a gene-count matrix. STAR produces the counts as a
+by-product of alignment (`--quantMode GeneCounts`), so the stage feeds
+`bulk.de` directly with no separate quantification step. `star_index` is a
+required input, which keeps one implementation of `genomeGenerate` in the repo
+and makes reuse of that expensive artifact explicit in the graph.
+
+`ReadsPerGene.out.tab` reports unstranded, forward, and reverse totals side by
+side, and the wrong column yields a matrix that is mostly noise without failing.
+`strandedness` defaults to `auto`, which classifies the library from the split
+between the two *stranded* columns — the unstranded column is approximately
+their sum, so comparing all three would always answer `unstranded`. The choice
+and its evidence are written to `counts/strandedness.tsv`. The run fails rather
+than guessing when the split is neither clearly stranded nor near even, and when
+samples disagree with each other. Set `strandedness` explicitly to skip
+inference; the report still records what was used.
+
+Samplesheets for `bulk.align` and `bulk.salmon` use the `bulk.fastq-samplesheet`
+type: `sample` and `fastq_1` are required, `fastq_2` is optional, and no
+`strandedness` column is needed because both stages infer it. That is a weaker
+contract than `bulk.rnaseq-samplesheet`, so the two are deliberately distinct
+types and cannot be wired interchangeably.
+
+## Variant calling and reference reuse
+
+`bulk.rnavar` launches the pinned nf-core/rnavar release for GATK4 RNA short
+variant discovery. Its `variants` output is the `variant_calling/` **directory**
+rather than a VCF file, because rnavar writes one VCF per sample and a
+file-level contract would match several paths and fail postflight on any
+multi-sample run.
+
+`bulk.star-reference` builds a STAR index, FASTA index, and sequence dictionary
+once from a genome FASTA and GTF. `bulk.rnavar` accepts `star_index`,
+`fasta_fai`, and `dict` as **optional inputs**, so a project can reuse them:
+
+```toml
+[[workflow.stages]]
+id = "variants"
+uses = "bulk.rnavar"
+depends_on = ["ref"]
+
+[workflow.stages.inputs]
+samplesheet = "samplesheet.csv"
+star_index = "${ref.star_index}"
+```
+
+Omit them and rnavar derives its own references per run. Optional inputs are
+validated exactly like required ones when supplied — artifact types must match
+and a reference implies a dependency edge — but a stage plans successfully
+without them. Unknown input names are still rejected.
+
+Reference preparation records the read length and splice-junction overhang in
+`reference/reference-manifest.tsv`, because an index built for the wrong
+overhang runs without complaint while losing junction sensitivity.
+
+The published FASTA index and sequence dictionary keep the caller's FASTA name
+— `GRCh38.fa` yields `GRCh38.fa.fai` and `GRCh38.dict` — because GATK resolves
+both from the reference basename rather than from the paths it is handed.
+
+TxSuite rejects two rnavar combinations before Nextflow starts: base
+recalibration without `dbsnp` or `known_indels`, and an annotation tool without
+its cache. Both otherwise surface only after alignment has already run.
 
 ## Contrast expansion
 
@@ -136,6 +271,7 @@ Create a safe, non-overwriting scaffold with:
 ```bash
 txsuite project init --preset bulk-rnaseq my-project
 txsuite project init --preset bulk-salmon my-project
+txsuite project init --preset bulk-rnavar my-project
 txsuite project init --preset scrnaseq my-project
 txsuite project init --preset scrnaseq-alevin my-project
 txsuite project init --preset scrnaseq-pseudobulk my-project

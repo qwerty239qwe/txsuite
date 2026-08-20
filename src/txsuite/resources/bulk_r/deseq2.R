@@ -178,7 +178,15 @@ expanded_contrasts <- function(mode, levels_present, reference, test) {
         }
     }
     # The primary contrast is written at the output root, so drop it here.
-    Filter(function(pair) !(pair[[1]] == test && pair[[2]] == reference), pairs)
+    # A pair is the primary contrast in either orientation; keeping the mirrored
+    # one would rerun the same comparison with inverted signs.
+    Filter(
+        function(pair) {
+            !((pair[[1]] == test && pair[[2]] == reference) ||
+                (pair[[1]] == reference && pair[[2]] == test))
+        },
+        pairs
+    )
 }
 
 result <- as_result_table(de_result)

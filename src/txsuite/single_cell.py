@@ -14,6 +14,7 @@ from txsuite.runtime import TxSuiteError, run_command
 
 REQUIRED_COLUMNS = ("sample", "fastq_1", "fastq_2")
 ALIGNERS = ("simpleaf", "star", "cellranger")
+INTEGRATION_METHODS = ("none", "harmony")
 COMPARISON_COLUMNS = {
     "comparison",
     "group_column",
@@ -182,8 +183,10 @@ def analysis_command(
             raise TxSuiteError(f"{label} must be a simple column name")
     if doublets not in {"off", "score", "filter"}:
         raise TxSuiteError("Doublet mode must be off, score, or filter")
-    if integration not in {"none", "harmony"}:
-        raise TxSuiteError("Integration method must be none or harmony")
+    if integration not in INTEGRATION_METHODS:
+        raise TxSuiteError(
+            f"Integration method must be one of: {', '.join(INTEGRATION_METHODS)}"
+        )
     if integration == "harmony" and batch_column is None:
         raise TxSuiteError("Harmony integration requires a batch column")
     if integration == "harmony" and stop_after == "qc":

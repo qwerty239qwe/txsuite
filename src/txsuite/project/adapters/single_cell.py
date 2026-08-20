@@ -15,7 +15,12 @@ from txsuite.single_cell import (
     workflow_command,
 )
 
-from . import command_context, configured_image, input_path
+from . import (
+    command_context,
+    configured_image,
+    input_path,
+    optional_input_path,
+)
 
 
 def _optional_path(value: Any) -> Path | None:
@@ -77,6 +82,10 @@ def scanpy_command(context: Mapping[str, Any] | object) -> list[str]:
         min_cells=params.get("min_cells", 3),
         max_mito_pct=params.get("max_mito_pct", 20.0),
         resolution=params.get("resolution", 1.0),
+        metadata=optional_input_path(inputs, "metadata"),
+        barcode_column=params.get("barcode_column", "barcode"),
+        batch_column=params.get("batch_column"),
+        integration=params.get("integration", "none"),
         check_inputs=check_inputs,
         container_target="/input/data.h5ad" if symbolic else None,
     )

@@ -20,6 +20,8 @@ from txsuite.runtime import TxSuiteError
 EXPECTED_PRESETS = (
     "bulk-rnaseq",
     "bulk-salmon",
+    "bulk-align",
+    "bulk-rnavar",
     "scrnaseq",
     "scrnaseq-alevin",
     "scrnaseq-pseudobulk",

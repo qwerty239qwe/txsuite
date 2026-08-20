@@ -340,7 +340,11 @@ def _resolve_parameter_paths(value: Any, source_dir: Path) -> Any:
 
 
 def _default_output_path(
-    uses: str, name: str, params: Mapping[str, Any], outdir: Path
+    uses: str,
+    name: str,
+    params: Mapping[str, Any],
+    outdir: Path,
+    inputs: Mapping[str, Any],
 ) -> Path | None:
     if name == "results":
         return outdir
@@ -350,6 +354,17 @@ def _default_output_path(
         ("bulk.salmon", "counts"): outdir / "counts" / "gene_counts.tsv",
         ("bulk.salmon", "tx_counts"): outdir / "counts" / "transcript_counts.tsv",
         ("single-cell.alevin", "matrix"): outdir / "matrix" / "alevin.h5ad",
+        ("bulk.genesets", "gmt"): outdir / "genesets.gmt",
+        ("bulk.genesets", "mapping"): outdir / "id-mapping.tsv",
+        ("bulk.genesets", "provenance"): outdir / "sources.json",
+        ("bulk.align", "counts"): outdir / "counts" / "gene_counts.tsv",
+        ("bulk.align", "strandedness"): outdir / "counts" / "strandedness.tsv",
+        ("bulk.align", "alignments"): outdir / "alignments",
+        ("bulk.align", "logs"): outdir / "logs",
+        ("bulk.star-reference", "star_index"): outdir / "star_index",
+        ("bulk.star-reference", "manifest"): outdir
+        / "reference"
+        / "reference-manifest.tsv",
         ("single-cell.scanpy", "h5ad"): outdir / "analysis.h5ad",
         ("single-cell.pseudobulk", "counts"): outdir / "pseudobulk-counts.tsv",
         ("single-cell.pseudobulk", "metadata"): outdir / "pseudobulk-metadata.tsv",
@@ -357,6 +372,16 @@ def _default_output_path(
         / "deseq2"
         / "deseq2-results.tsv",
     }
+    if uses == "bulk.star-reference" and name in {"fasta_fai", "dict"}:
+        # GATK looks for <fasta>.fai and <fasta minus extension>.dict beside the
+        # reference, so these names follow the caller's FASTA rather than a
+        # canonical one. A FASTA produced by another stage has no name at plan
+        # time, which the caller reports rather than silently deferring.
+        fasta = inputs.get("fasta")
+        if not isinstance(fasta, Path):
+            return None
+        suffix = f"{fasta.name}.fai" if name == "fasta_fai" else f"{fasta.stem}.dict"
+        return outdir / "reference" / suffix
     if uses == "bulk.de" and name == "de_results":
         return outdir / f"{params['method']}-results.tsv"
     if uses == "bulk.de" and name == "contrast_index":
@@ -385,7 +410,7 @@ def _resolve_outputs(
         path = (
             _absolute(stage.outputs[name], source_dir)
             if explicit
-            else _default_output_path(spec.uses, name, params, outdir)
+            else _default_output_path(spec.uses, name, params, outdir, stage.inputs)
         )
         outputs[name] = PlannedOutput(
             stage_id=stage.id,
@@ -426,8 +451,9 @@ def _resolve_inputs(
     spec: StageSpec,
     outputs: Mapping[str, Mapping[str, PlannedOutput]],
 ) -> Mapping[str, PlannedInput]:
+    accepted = spec.accepted_inputs
     missing = sorted(set(spec.inputs) - set(stage.inputs))
-    unknown = sorted(set(stage.inputs) - set(spec.inputs))
+    unknown = sorted(set(stage.inputs) - set(accepted))
     if missing:
         raise PlanningError(
             f"Stage {stage.id!r} is missing required input(s): {', '.join(missing)}"
@@ -438,7 +464,12 @@ def _resolve_inputs(
             + ", ".join(unknown)
         )
     planned: dict[str, PlannedInput] = {}
-    for name, artifact_type in sorted(spec.inputs.items()):
+    # Optional inputs are planned exactly like required ones when supplied, and
+    # simply absent otherwise, so a stage that can reuse a prebuilt artifact
+    # keeps full reference resolution without forcing every project to provide it.
+    for name, artifact_type in sorted(accepted.items()):
+        if name not in stage.inputs:
+            continue
         raw = stage.inputs[name]
         references = tuple(_references(raw))
         for reference in references:
@@ -477,6 +508,16 @@ def _resolve_inputs(
     return MappingProxyType(planned)
 
 
+# Stages that launch a pinned upstream pipeline, and the config key holding its
+# pin. Kept in one place so a new launcher cannot pick up pins without also
+# getting postflight artifact resolution.
+_PIPELINE_KEYS = {
+    "bulk.rnaseq": "pipelines.bulk",
+    "bulk.rnavar": "pipelines.variants",
+    "single-cell.scrnaseq": "pipelines.single_cell",
+}
+
+
 def _config_value(config: Mapping[str, Any], dotted: str) -> Any:
     value: Any = config
     for part in dotted.split("."):
@@ -505,10 +546,7 @@ def _requirements(
         images[key] = value
 
     pins = dict(images)
-    pipeline_key = {
-        "bulk.rnaseq": "pipelines.bulk",
-        "single-cell.scrnaseq": "pipelines.single_cell",
-    }.get(spec.uses)
+    pipeline_key = _PIPELINE_KEYS.get(spec.uses)
     if pipeline_key is not None:
         for field_name in ("name", "release"):
             dotted = f"{pipeline_key}.{field_name}"
@@ -541,10 +579,12 @@ def _command_config(
 
 
 def _validate_profile(stage: StageDefinition, spec: StageSpec, profile: str) -> None:
-    if spec.uses in {"bulk.rnaseq", "single-cell.scrnaseq", "single-cell.pseudobulk-de"}:
+    if "nextflow" in spec.required_executables:
+        # Nextflow selects the container runtime through its own profile, so any
+        # stage that shells out to Nextflow works under both.
         supported = ("apptainer", "docker")
     else:
-        # The current owned downstream adapters construct `docker run` argv.
+        # The owned downstream adapters construct `docker run` argv directly.
         supported = ("docker",)
     if profile not in supported:
         choices = ", ".join(supported)
@@ -619,10 +659,7 @@ def _postflight_metadata(
     outputs: Mapping[str, PlannedOutput],
     outdir: Path,
 ) -> Mapping[str, Any]:
-    pipeline_key = {
-        "bulk.rnaseq": "pipelines.bulk",
-        "single-cell.scrnaseq": "pipelines.single_cell",
-    }.get(spec.uses)
+    pipeline_key = _PIPELINE_KEYS.get(spec.uses)
     if pipeline_key is None:
         return MappingProxyType({})
     return _freeze(

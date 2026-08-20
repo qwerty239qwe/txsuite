@@ -358,7 +358,13 @@ class SalmonStageRegistryTests(unittest.TestCase):
         de_spec = get_stage_spec("bulk.de")
 
         self.assertEqual(spec.modality, "bulk")
-        self.assertEqual(spec.inputs, get_stage_spec("bulk.rnaseq").inputs)
+        # Deliberately not bulk.rnaseq-samplesheet: salmon validates a weaker
+        # contract (no strandedness column), so the types must differ.
+        self.assertEqual(spec.inputs["samplesheet"], "bulk.fastq-samplesheet")
+        self.assertNotEqual(
+            spec.inputs["samplesheet"],
+            get_stage_spec("bulk.rnaseq").inputs["samplesheet"],
+        )
         self.assertEqual(spec.outputs["counts"], de_spec.inputs["counts"])
         self.assertEqual(spec.outputs["tx_counts"], "bulk.transcript-counts")
         self.assertEqual(spec.required_images, ("images.salmon",))

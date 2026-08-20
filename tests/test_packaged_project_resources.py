@@ -49,7 +49,12 @@ class PackagedProjectResourceTests(unittest.TestCase):
                     for stage in workflow.stages:
                         spec = get_stage_spec(stage.uses)
                         self.assertEqual(spec.modality, workflow.project.modality)
-                        self.assertEqual(set(stage.inputs), set(spec.inputs))
+                        # Every required input must be present, and nothing
+                        # beyond the optional ones the stage accepts.
+                        self.assertLessEqual(set(spec.inputs), set(stage.inputs))
+                        self.assertLessEqual(
+                            set(stage.inputs), set(spec.accepted_inputs)
+                        )
                         self.assertLessEqual(set(stage.outputs), set(spec.outputs))
                         validate_stage_parameters(spec, stage.params)
 
@@ -61,7 +66,7 @@ class PackagedProjectResourceTests(unittest.TestCase):
                             self.assertIn(value.artifact_id, producer_spec.outputs)
                             self.assertEqual(
                                 producer_spec.outputs[value.artifact_id],
-                                spec.inputs[input_name],
+                                spec.accepted_inputs[input_name],
                             )
 
     def test_readmes_contain_exact_validate_plan_and_run_commands(self) -> None:

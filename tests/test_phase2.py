@@ -226,7 +226,7 @@ class Phase2Test(unittest.TestCase):
                     resolution=0.5,
                     integration="harmony",
                 )
-            with self.assertRaisesRegex(TxSuiteError, "must be none or harmony"):
+            with self.assertRaisesRegex(TxSuiteError, "Integration method must be one of"):
                 analysis_command(
                     image="txsuite/single-cell-python:test",
                     input_path=matrix,
