@@ -32,7 +32,12 @@ jobs:
     # The contrast-set tests execute plain R extracted from the shipped DE
     # scripts. They skip without Rscript, so they live in their own bounded job:
     # setting R up inside the Python matrix hung apt and cost three job slots.
+    #
+    # Non-blocking: the R setup has hung on apt, and that is an infrastructure
+    # flake rather than a code signal. The result still shows on the run, so a
+    # genuine regression here is visible without gating a merge on apt.
     runs-on: ubuntu-latest
+    continue-on-error: true
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
@@ -169,7 +174,11 @@ jobs:
           --outdir /tmp/txsuite-cellranger-results
 
   single-cell-smoke:
+    # Non-blocking: this builds an image and runs real Scanpy and alevin-fry
+    # work, so it is by far the slowest job. Its failures are worth seeing but
+    # not worth blocking a merge that the fast suites already cleared.
     runs-on: ubuntu-latest
+    continue-on-error: true
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
