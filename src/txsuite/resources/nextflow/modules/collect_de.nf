@@ -5,6 +5,7 @@ process COLLECT_DE {
     input:
     val expected
     path result_inputs
+    path collector
 
     output:
     path 'comparison-index.tsv', emit: index
@@ -15,14 +16,10 @@ process COLLECT_DE {
         [meta.id, meta.group_column, meta.group_value, meta.design, meta.reference,
          meta.test, meta.method].join('\t')
     }.join('\n')
+    def directories = result_inputs.collect { "'${it}'" }.join(' ')
     """
     printf 'comparison\tgroup_column\tgroup_value\tdesign\treference\ttest\tmethod\n${rows}\n' > expected.tsv
-    python /opt/txsuite/single_cell.py collect-de expected.tsv . ${result_inputs.join(' ')}
+    python3 "${collector}" expected.tsv . ${directories}
     """
 
-    stub:
-    """
-    printf 'comparison\tstatus\tmethod\tgroup_column\tgroup_value\tdesign\treference\ttest\tresult\tsignificant\terror\n' > comparison-index.tsv
-    printf 'comparison\tgroup_column\tgroup_value\tdesign\treference\ttest\tmethod\n' > combined-results.tsv
-    """
 }

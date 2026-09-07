@@ -56,7 +56,9 @@ def summary(plan) -> dict[str, object]:
         },
         "outputs": {
             stage.id: {
-                name: str(output.value) for name, output in stage.outputs.items()
+                name: (output.value.as_posix().removeprefix(output.value.drive)
+                       if isinstance(output.value, Path) else str(output.value))
+                for name, output in stage.outputs.items()
             }
             for stage in plan.stages
         },
@@ -308,13 +310,13 @@ class ProjectPlannerValidationTests(unittest.TestCase):
         self.assertEqual(postflight["adapter"], "nfcore")
         self.assertEqual(postflight["pipeline"], "nf-core/rnaseq")
         self.assertEqual(postflight["release"], "3.26.0")
-        self.assertEqual(postflight["results_root"], Path("/work/results/raw"))
+        self.assertEqual(postflight["results_root"], Path("/work/results/raw").resolve())
         self.assertEqual(postflight["artifacts"]["counts"], "bulk.gene-counts")
         self.assertEqual(
             dict(postflight["policies"]["counts"]),
             {"kind": "file", "non_empty": True},
         )
-        self.assertEqual(postflight["overrides"]["counts"], Path("/work/artifacts/counts.tsv"))
+        self.assertEqual(postflight["overrides"]["counts"], Path("/work/artifacts/counts.tsv").resolve())
 
     def test_planned_output_policies_reject_wrong_kind_zero_byte_and_empty_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

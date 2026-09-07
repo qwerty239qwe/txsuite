@@ -17,7 +17,7 @@ def simpleLevel(value, label) {
     value
 }
 
-def comparisonMeta(row, sampleColumn) {
+def comparisonMeta(row, sampleColumn, countsLayer) {
     ['comparison', 'design', 'reference', 'test'].each { key ->
         if (!row[key]?.trim()) error "Comparison manifest has an empty ${key}"
     }
@@ -42,6 +42,7 @@ def comparisonMeta(row, sampleColumn) {
     [
         id: simpleLevel(row.comparison.trim(), 'Comparison'),
         sample_column: simpleColumn(sampleColumn, 'Sample column'),
+        counts_layer: simpleColumn(countsLayer, 'Counts layer'),
         group_column: groupColumn ? simpleColumn(groupColumn, 'Group column') : '',
         group_value: groupValue ? simpleLevel(groupValue, 'Group value') : '',
         design: simpleColumn(row.design.trim(), 'Design'),
@@ -67,12 +68,12 @@ workflow {
                        'test', 'method', 'covariates', 'padj', 'lfc', 'top_genes'] as Set
         comparisons = Channel.fromPath(params.manifest, checkIfExists: true)
             .splitCsv(header: true, sep: '\t', strip: true)
-            .collect()
+            .toList()
             .flatMap { rows ->
                 if (!rows) error 'Comparison manifest has no data rows'
                 def unknown = rows[0].keySet() - allowed
                 if (unknown) error "Comparison manifest has unknown columns: ${unknown.sort().join(', ')}"
-                def metas = rows.collect { row -> comparisonMeta(row, params.sample_column) }
+                def metas = rows.collect { row -> comparisonMeta(row, params.sample_column, params.counts_layer) }
                 def duplicates = metas.groupBy { it.id.toLowerCase() }.findAll { key, values -> values.size() > 1 }
                 if (duplicates) error "Duplicated comparison: ${duplicates.keySet().sort().join(', ')}"
                 metas.collect { meta -> tuple(meta, h5ad) }
@@ -86,15 +87,15 @@ workflow {
             padj: params.padj as String, lfc: params.lfc as String,
             top_genes: params.top_genes as String,
         ]
-        comparisons = Channel.of(tuple(comparisonMeta(row, params.sample_column), h5ad))
+        comparisons = Channel.of(tuple(comparisonMeta(row, params.sample_column, params.counts_layer), h5ad))
     }
 
     expected = comparisons.map { meta, input -> meta }.collect()
     PSEUDOBULK_DE(comparisons)
-    // Keep one staged path so the collector also runs when every comparison fails.
+    // toList emits [] when all comparisons fail, so collection still runs.
     result_inputs = PSEUDOBULK_DE.out.results
         .map { meta, directory -> directory }
-        .concat(Channel.of(h5ad))
-        .collect()
-    COLLECT_DE(expected, result_inputs)
+        .toList()
+        .map { directories -> directories.sort { a, b -> a.name <=> b.name } }
+    COLLECT_DE(expected, result_inputs, file("${projectDir}/../single_cell_python/collect_de.py"))
 }

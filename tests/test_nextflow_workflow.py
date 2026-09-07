@@ -27,7 +27,7 @@ class NextflowWorkflowTests(unittest.TestCase):
         config = package.joinpath("nextflow.config").read_text(encoding="utf-8")
 
         self.assertIn("PSEUDOBULK_DE(comparisons)", main)
-        self.assertIn("COLLECT_DE(expected, result_inputs)", main)
+        self.assertIn("COLLECT_DE(expected, result_inputs, file(", main)
         self.assertIn("PSEUDOBULK(comparisons)", subworkflow)
         self.assertIn("BULK_DE(PSEUDOBULK.out.data)", subworkflow)
         self.assertNotIn("params.", pseudobulk)
@@ -38,7 +38,7 @@ class NextflowWorkflowTests(unittest.TestCase):
         self.assertIn("--covariate", pseudobulk)
         self.assertIn("alternative_de.R", bulk_de)
         self.assertIn("meta.method", bulk_de)
-        self.assertIn("collect-de", collect)
+        self.assertIn('${collector}', collect)
         self.assertIn("stub:", pseudobulk)
         self.assertIn("stub:", bulk_de)
         self.assertIn("workflow.failOnIgnore = true", config)

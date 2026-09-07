@@ -37,6 +37,18 @@ def python_stage(
 
 
 class ProjectExecutorTest(unittest.TestCase):
+    def test_file_parameter_content_affects_resume_fingerprint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            metadata = root / "metadata.tsv"
+            metadata.write_text("first")
+            executor = ProjectExecutor(self.make_bundle(root, {"stages": []}))
+            stage = {"params": {"metadata": str(metadata)}}
+            before = executor._input_fingerprints(stage, {}, cwd=root)
+            metadata.write_text("other")
+            after = executor._input_fingerprints(stage, {}, cwd=root)
+            self.assertNotEqual(before, after)
+
     def make_bundle(
         self, root: Path, command_plan: object, run_id: str = "test-run"
     ) -> RunBundle:

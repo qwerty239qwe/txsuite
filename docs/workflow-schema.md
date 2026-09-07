@@ -59,6 +59,26 @@ dependency cycles, backend compatibility, and future registry changes.
 
 ## Artifact references and deferred commands
 
+### Single-cell controls
+
+`single-cell.scanpy` accepts the analysis CLI controls as snake_case parameters:
+`metadata`, `barcode_column`, `batch_column`, `integration`, `counts_layer`,
+`target_sum`, `n_hvg`, `hvg_flavor`, `n_pcs`, `n_neighbors`, `umap_min_dist`,
+`marker_method`, `stop_after`, `skip_umap`, `skip_markers`, `doublets`,
+`doublet_batch_column`, `expected_doublet_rate`, `doublet_threshold`, and
+`top_markers`, in addition to its QC thresholds and resolution.
+
+Both pseudobulk stages accept `counts_layer`, `group_column`, `group_value`,
+and `covariates` (an array of column names). Group column and value must be
+provided together. The native DE stage publishes its `de_results` artifact at
+`de/<test>_vs_<reference>/deseq2-results.tsv` beneath the stage output directory.
+
+Metadata and configuration file parameters are resolved relative to the
+workflow file and fingerprinted for resume. Change their contents to invalidate
+the affected stage even when the filename stays the same.
+
+### Referencing outputs
+
 An input can reference a producer's named output using the exact form
 `${stage_id.artifact_id}`:
 

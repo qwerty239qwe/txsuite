@@ -58,7 +58,7 @@ class ProjectPresetTests(unittest.TestCase):
                         self.assertEqual(
                             tuple(
                                 path.relative_to(target).as_posix()
-                                for path in sorted(target.rglob("*"))
+                                for path in sorted(target.rglob("*"), key=lambda p: p.relative_to(target).as_posix())
                                 if path.is_file()
                             ),
                             preset.files,

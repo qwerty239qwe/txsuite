@@ -5,6 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN python -m pip install --no-cache-dir "scanpy[leiden]==1.12.2" "harmonypy==2.0.0"
 
 COPY single_cell.py /opt/txsuite/single_cell.py
+COPY collect_de.py /opt/txsuite/collect_de.py
 
 WORKDIR /work
 CMD ["python", "/opt/txsuite/single_cell.py", "--help"]

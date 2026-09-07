@@ -9,9 +9,10 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v6
@@ -57,6 +58,10 @@ jobs:
       - uses: nf-core/setup-nextflow@v3
         with:
           version: "26.04"
+      - name: Check real collection, failures, and resume
+        env:
+          TXSUITE_NEXTFLOW_TESTS: "1"
+        run: python -m unittest discover -s tests -p test_nextflow_integration.py -v
       - run: touch /tmp/txsuite-stub.h5ad
       - run: >-
           nextflow run src/txsuite/resources/nextflow/main.nf
@@ -84,6 +89,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: docker build -t txsuite-single-cell:test src/txsuite/resources/single_cell_python
+      - name: Reject invalid raw counts before aggregation
+        run: >-
+          docker run --rm -v "$PWD:/repo:ro" -w /repo -e PYTHONPATH=/repo/src
+          txsuite-single-cell:test python -m unittest discover -s tests -p test_raw_counts.py -v
       - run: mkdir -p /tmp/txsuite-single-cell/analysis /tmp/txsuite-single-cell/pca /tmp/txsuite-single-cell/pseudobulk
       - run: >-
           docker run --rm

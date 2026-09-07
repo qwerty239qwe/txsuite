@@ -348,10 +348,9 @@ def _default_output_path(
         ("single-cell.scanpy", "h5ad"): outdir / "analysis.h5ad",
         ("single-cell.pseudobulk", "counts"): outdir / "pseudobulk-counts.tsv",
         ("single-cell.pseudobulk", "metadata"): outdir / "pseudobulk-metadata.tsv",
-        ("single-cell.pseudobulk-de", "de_results"): outdir
-        / "deseq2"
-        / "deseq2-results.tsv",
     }
+    if uses == "single-cell.pseudobulk-de" and name == "de_results":
+        return outdir / "de" / f"{params['test']}_vs_{params['reference']}" / "deseq2-results.tsv"
     if uses == "bulk.de" and name == "de_results":
         return outdir / f"{params['method']}-results.tsv"
     return known.get((uses, name))

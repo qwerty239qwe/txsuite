@@ -177,6 +177,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     pseudobulk_workflow.add_argument("--input", type=Path, required=True)
     pseudobulk_workflow.add_argument("--sample-column", required=True)
+    pseudobulk_workflow.add_argument("--counts-layer", default="counts")
     pseudobulk_workflow.add_argument("--design", required=True)
     pseudobulk_workflow.add_argument("--group-column")
     pseudobulk_workflow.add_argument("--group-value")
@@ -342,6 +343,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     pseudobulk.add_argument("--input", type=Path, required=True)
     pseudobulk.add_argument("--sample-column", required=True)
+    pseudobulk.add_argument("--counts-layer", default="counts")
     pseudobulk.add_argument("--design", required=True)
     pseudobulk.add_argument("--group-column")
     pseudobulk.add_argument("--group-value")
@@ -361,6 +363,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     pseudobulk_batch.add_argument("--input", type=Path, required=True)
     pseudobulk_batch.add_argument("--sample-column", required=True)
+    pseudobulk_batch.add_argument("--counts-layer", default="counts")
     pseudobulk_batch.add_argument("--manifest", type=Path, required=True)
     pseudobulk_batch.add_argument("--outdir", type=Path, required=True)
     pseudobulk_batch.add_argument("--image")
@@ -726,6 +729,7 @@ def run(argv: list[str] | None = None) -> int:
             config = load_config(args.config)
             command = pseudobulk_workflow_command(
                 config,
+                counts_layer=args.counts_layer,
                 h5ad=args.input,
                 outdir=args.outdir,
                 sample_column=args.sample_column,
@@ -773,7 +777,7 @@ def run(argv: list[str] | None = None) -> int:
                     {
                         "kind": "directory",
                         "label": "DESeq2 results",
-                        "path": str((args.outdir / "deseq2").resolve()),
+                        "path": str((args.outdir / "de" / f"{args.test}_vs_{args.reference}").resolve()),
                     },
                 ],
             )
@@ -1154,6 +1158,7 @@ def run(argv: list[str] | None = None) -> int:
             config = load_config(args.config)
             if args.direct:
                 commands = run_pseudobulk_manifest(
+                    counts_layer=args.counts_layer,
                     manifest=args.manifest,
                     h5ad=args.input,
                     outdir=args.outdir,
@@ -1168,6 +1173,7 @@ def run(argv: list[str] | None = None) -> int:
                 return 0
             command = pseudobulk_manifest_workflow_command(
                 config,
+                counts_layer=args.counts_layer,
                 manifest=args.manifest,
                 h5ad=args.input,
                 outdir=args.outdir,
@@ -1208,6 +1214,7 @@ def run(argv: list[str] | None = None) -> int:
             counts = args.outdir / "pseudobulk-counts.tsv"
             metadata = args.outdir / "pseudobulk-metadata.tsv"
             aggregate = pseudobulk_command(
+                counts_layer=args.counts_layer,
                 image=image,
                 h5ad=args.input,
                 outdir=args.outdir,

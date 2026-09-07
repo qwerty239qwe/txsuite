@@ -62,25 +62,32 @@ def add_metadata(adata, path: Path, barcode_column: str) -> list[str]:
 
 
 def prepare_counts(adata, counts_layer: str) -> str:
+    if counts_layer not in adata.layers and counts_layer != "counts":
+        raise ValueError(f"Counts layer does not exist: {counts_layer}")
     source = f"layer:{counts_layer}" if counts_layer in adata.layers else "X"
     counts = (
         adata.layers[counts_layer].copy()
         if counts_layer in adata.layers
         else adata.X.copy()
     )
+    validate_counts(counts, source)
+    adata.X = counts.copy()
+    adata.layers["counts"] = counts
+    return source
+
+
+def validate_counts(counts, source: str) -> None:
     values = counts.data if sparse.issparse(counts) else np.asarray(counts)
     if (
         not np.isfinite(values).all()
         or (values < 0).any()
-        or not np.allclose(values, np.rint(values))
+        or not np.equal(values, np.rint(values)).all()
+        or (values >= 2**63).any()
     ):
         raise ValueError(
             f"{source} must contain non-negative integer raw counts; "
             "provide --counts-layer for normalized H5AD input"
         )
-    adata.X = counts.copy()
-    adata.layers["counts"] = counts
-    return source
 
 
 def reset_analysis(adata) -> None:
@@ -398,16 +405,20 @@ def pseudobulk(args: argparse.Namespace) -> None:
             adata.obs.groupby(args.sample_column, observed=True)[column].nunique() > 1
         ).any():
             raise ValueError(f"Each sample must have exactly one {column} value")
-    matrix = adata.layers.get("counts", adata.X)
+    if args.counts_layer not in adata.layers and args.counts_layer != "counts":
+        raise ValueError(f"Counts layer does not exist: {args.counts_layer}")
+    matrix = adata.layers.get(args.counts_layer, adata.X)
+    validate_counts(matrix, args.counts_layer)
     samples = sorted(adata.obs[args.sample_column].astype(str).unique())
     count_columns = {}
     for sample in samples:
         mask = adata.obs[args.sample_column].astype(str).to_numpy() == sample
-        count_columns[sample] = np.asarray(matrix[mask].sum(axis=0)).ravel()
+        count_columns[sample] = np.asarray(matrix[mask].astype(np.float64).sum(axis=0)).ravel()
     counts = pd.DataFrame(count_columns, index=adata.var_names)
-    rounded = np.rint(counts.to_numpy())
-    if (rounded < 0).any() or not np.allclose(counts.to_numpy(), rounded):
-        raise ValueError("Pseudobulk requires non-negative integer raw counts")
+    # Float64 aggregation is exact only below this integer limit.
+    if (counts.to_numpy() >= 2**53).any():
+        raise ValueError("Pseudobulk totals exceed the exact integer range")
+    validate_counts(counts.to_numpy(), "Pseudobulk totals")
     counts = counts.astype(np.int64)
     counts.to_csv(output / "pseudobulk-counts.tsv", sep="\t", index_label="gene_id")
     metadata = (
@@ -430,48 +441,9 @@ def pseudobulk(args: argparse.Namespace) -> None:
 
 
 def collect_de(args: argparse.Namespace) -> None:
-    output = Path(args.output)
-    output.mkdir(parents=True, exist_ok=True)
-    expected = pd.read_csv(args.expected, sep="\t", dtype=str, keep_default_na=False)
-    directories = {
-        Path(path).name: Path(path) for path in args.result_dir if Path(path).is_dir()
-    }
-    records = []
-    tables = []
-    prefix = [
-        "comparison", "group_column", "group_value", "design",
-        "reference", "test", "method",
-    ]
-    for row in expected.to_dict("records"):
-        name = row["comparison"]
-        method = row["method"] or "deseq2"
-        directory = directories.get(name)
-        result = directory / f"{method}-results.tsv" if directory else None
-        significant = directory / "significant-genes.tsv" if directory else None
-        success = bool(result and result.is_file() and significant.is_file())
-        records.append(
-            {
-                **row,
-                "status": "success" if success else "failed",
-                "result": f"de/{name}/{method}-results.tsv" if success else "",
-                "significant": f"de/{name}/significant-genes.tsv" if success else "",
-                "error": "" if success else "See the Nextflow trace for the failed task",
-            }
-        )
-        if success:
-            table = pd.read_csv(result, sep="\t")
-            for column in reversed(prefix):
-                table.insert(0, column, row[column])
-            tables.append(table)
-    index_columns = [
-        "comparison", "status", "method", "group_column", "group_value",
-        "design", "reference", "test", "result", "significant", "error",
-    ]
-    pd.DataFrame(records).to_csv(
-        output / "comparison-index.tsv", sep="\t", index=False, columns=index_columns
-    )
-    combined = pd.concat(tables, ignore_index=True, sort=False) if tables else pd.DataFrame(columns=prefix)
-    combined.to_csv(output / "combined-results.tsv", sep="\t", index=False)
+    from collect_de import collect_de as collect
+
+    collect(args)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -517,6 +489,7 @@ def parser() -> argparse.ArgumentParser:
     bulk.add_argument("output")
     bulk.add_argument("--sample-column", required=True)
     bulk.add_argument("--design", required=True)
+    bulk.add_argument("--counts-layer", default="counts")
     bulk.add_argument("--group-column")
     bulk.add_argument("--group-value")
     bulk.add_argument("--covariate", action="append", default=[])

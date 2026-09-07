@@ -295,6 +295,13 @@ class ProjectExecutor:
                 "artifact_type": artifact_type,
                 "producers": producers,
             }
+        # File-valued parameters affect execution just as declared inputs do.
+        for name in ("metadata", "params_file", "nextflow_config"):
+            value = stage.get("params", {}).get(name)
+            if value is not None:
+                fingerprints[f"params.{name}"] = fingerprint_path(
+                    self._path_from_input(value, cwd)
+                )
         return fingerprints
 
     def _validate_materialized_inputs(

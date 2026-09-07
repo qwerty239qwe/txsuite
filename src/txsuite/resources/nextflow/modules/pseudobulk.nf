@@ -17,6 +17,7 @@ process PSEUDOBULK {
     python /opt/txsuite/single_cell.py pseudobulk \
         "${h5ad}" "${outputDir}" \
         --sample-column ${meta.sample_column} \
+        --counts-layer ${meta.counts_layer} \
         --design ${meta.design} \
         --reference ${meta.reference} \
         --test ${meta.test} \

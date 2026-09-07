@@ -47,10 +47,7 @@ def scanpy_command(context: Mapping[str, Any] | object) -> list[str]:
         image=configured_image(config, params, "single_cell_python"),
         input_path=planned_input,
         outdir=outdir,
-        min_genes=params.get("min_genes", 200),
-        min_cells=params.get("min_cells", 3),
-        max_mito_pct=params.get("max_mito_pct", 20.0),
-        resolution=params.get("resolution", 1.0),
+        **{key: value for key, value in params.items() if key != "image"},
         check_inputs=check_inputs,
         container_target="/input/data.h5ad" if symbolic else None,
     )
@@ -66,6 +63,10 @@ def pseudobulk_command(context: Mapping[str, Any] | object) -> list[str]:
         outdir=outdir,
         sample_column=params["sample_column"],
         design=params["design"],
+        counts_layer=params.get("counts_layer", "counts"),
+        group_column=params.get("group_column"),
+        group_value=params.get("group_value"),
+        covariates=tuple(params.get("covariates", ())),
         check_inputs=check_inputs,
     )
 
@@ -82,6 +83,10 @@ def pseudobulk_de_command(context: Mapping[str, Any] | object) -> list[str]:
         design=params["design"],
         reference=params["reference"],
         test=params["test"],
+        counts_layer=params.get("counts_layer", "counts"),
+        group_column=params.get("group_column"),
+        group_value=params.get("group_value"),
+        covariates=tuple(params.get("covariates", ())),
         single_cell_image=params.get("single_cell_image"),
         bulk_image=params.get("bulk_image"),
         padj=params.get("padj", 0.05),

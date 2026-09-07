@@ -255,6 +255,13 @@ uv run txsuite single-cell pseudobulk-batch \
 Batch mode uses the same Nextflow DAG by default. Add `--direct` to retain the
 sequential Docker runner when Nextflow is unavailable. Required manifest
 columns are `comparison`, `design`, `reference`, and `test`.
+For direct execution, build or pull both configured images first. Direct
+`--resume` checks input content, analysis parameters, resolved Docker image IDs,
+and result checksums; old runs without a completion fingerprint rerun once.
+Pseudobulk commands accept `--counts-layer` (default `counts`, falling back to
+`X` only when that default layer is absent). Individual cell values must be
+finite, non-negative integers before aggregation; an explicitly named missing
+layer is an error.
 Optional columns are `group_column`, `group_value`, `method`, comma-separated
 `covariates`, `padj`, `lfc`, and `top_genes`. Each comparison keeps its own
 outputs under `pseudobulk/<comparison>` and `de/<comparison>`. The workflow

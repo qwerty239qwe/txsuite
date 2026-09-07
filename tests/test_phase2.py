@@ -21,7 +21,8 @@ from txsuite.single_cell import (
 
 
 class Phase2Test(unittest.TestCase):
-    def test_manifest_pseudobulk_runs_combines_and_resumes(self) -> None:
+    @patch("txsuite.single_cell.subprocess.check_output", return_value="sha256:test")
+    def test_manifest_pseudobulk_runs_combines_and_resumes(self, inspect_image) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             h5ad = root / "data.h5ad"
@@ -85,6 +86,27 @@ class Phase2Test(unittest.TestCase):
                 )
             execute.assert_not_called()
             self.assertIn("skipped", (outdir / "comparison-index.tsv").read_text())
+
+            # Each change must invalidate completion, including changes behind a tag.
+            for change in ("input", "parameters", "image", "output", "completion"):
+                with self.subTest(change=change):
+                    if change == "input":
+                        h5ad.write_bytes(b"changed")
+                    elif change == "parameters":
+                        manifest.write_text(manifest.read_text().replace("condition", "treatment"))
+                    elif change == "image":
+                        inspect_image.return_value = "sha256:changed"
+                    elif change == "output":
+                        next(outdir.rglob("deseq2-results.tsv")).write_text("corrupt")
+                    else:
+                        next(outdir.rglob("completion.json")).write_text("{")
+                    with patch("txsuite.single_cell.run_command", side_effect=fake_run) as execute:
+                        run_pseudobulk_manifest(
+                            manifest=manifest, h5ad=h5ad, outdir=outdir,
+                            sample_column="sample", single_cell_image="txsuite/single-cell:test",
+                            bulk_image="txsuite/bulk:test", resume=True,
+                        )
+                    self.assertEqual(execute.call_count, 2)
 
             output = StringIO()
             with redirect_stdout(output):

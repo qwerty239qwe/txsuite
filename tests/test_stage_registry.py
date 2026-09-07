@@ -23,6 +23,24 @@ from txsuite.single_cell import (
 
 
 class StageRegistryTests(unittest.TestCase):
+    def test_scanpy_registry_forwards_analysis_controls(self):
+        spec = get_stage_spec("single-cell.scanpy")
+        params = validate_stage_parameters(spec, {
+            "counts_layer": "raw", "stop_after": "pca", "skip_umap": True,
+            "skip_markers": True, "n_pcs": 12, "n_neighbors": 8,
+            "integration": "harmony", "batch_column": "batch", "doublets": "score",
+        })
+        with tempfile.TemporaryDirectory() as temporary:
+            command = spec.build_command({
+                "global_config": DEFAULT_CONFIG, "resolved_inputs": {"input": Path(temporary) / "input.h5ad"},
+                "params": params, "outdir": Path(temporary) / "out", "check_inputs": False,
+            })
+        for flag, value in (("--counts-layer", "raw"), ("--stop-after", "pca"),
+                            ("--n-pcs", "12"), ("--integration", "harmony"), ("--doublets", "score")):
+            self.assertEqual(command[command.index(flag) + 1], value)
+        self.assertIn("--skip-umap", command)
+        self.assertIn("--skip-markers", command)
+
     def test_registry_contains_the_wave_one_stages_in_stable_order(self) -> None:
         expected = (
             "bulk.rnaseq",

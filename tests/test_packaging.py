@@ -35,6 +35,7 @@ class PackagingTests(unittest.TestCase):
         }
         with zipfile.ZipFile(wheel_path) as archive:
             members = set(archive.namelist())
+        expected.add("txsuite/resources/single_cell_python/collect_de.py")
         self.assertLessEqual(expected, members)
 
 

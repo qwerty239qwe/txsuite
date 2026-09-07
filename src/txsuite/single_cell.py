@@ -4,6 +4,7 @@ import csv
 import json
 import math
 import re
+import subprocess
 import tempfile
 from importlib import resources
 from pathlib import Path
@@ -279,6 +280,7 @@ def pseudobulk_command(
     outdir: Path,
     sample_column: str,
     design: str,
+    counts_layer: str = "counts",
     check_inputs: bool = True,
     group_column: str | None = None,
     group_value: str | None = None,
@@ -293,6 +295,7 @@ def pseudobulk_command(
     for label, value in (
         ("Sample column", sample_column),
         ("Design", design),
+        ("Counts layer", counts_layer),
         ("Group column", group_column),
         *(("Covariate", covariate) for covariate in covariates),
     ):
@@ -337,6 +340,8 @@ def pseudobulk_command(
         sample_column,
         "--design",
         design,
+        "--counts-layer",
+        counts_layer,
     ]
     if group_column is not None:
         command.extend(["--group-column", group_column, "--group-value", group_value])
@@ -469,10 +474,31 @@ def run_pseudobulk_manifest(
     sample_column: str,
     single_cell_image: str,
     bulk_image: str,
+    counts_layer: str = "counts",
     resume: bool = False,
     dry_run: bool = False,
 ) -> list[list[str]]:
+    # Import here to avoid the project registry -> command builder import cycle.
+    from txsuite.project.provenance import atomic_write_json, hash_file, hash_payload
+
     comparisons = load_pseudobulk_manifest(manifest)
+    input_hash = None
+    if not dry_run:
+        if not h5ad.is_file():
+            raise TxSuiteError(f"H5AD file does not exist: {h5ad}")
+        input_hash = hash_file(h5ad)
+        # Execute immutable local IDs as well as recording them: retagging cannot
+        # change the image between the fingerprint and the analysis.
+        try:
+            single_cell_image, bulk_image = [
+                subprocess.check_output(
+                    ["docker", "image", "inspect", "--format", "{{.Id}}", image],
+                    text=True,
+                ).strip()
+                for image in (single_cell_image, bulk_image)
+            ]
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise TxSuiteError("Build or pull the configured images before running the batch") from exc
     commands = []
     records: list[dict[str, str]] = []
     if not dry_run:
@@ -494,6 +520,7 @@ def run_pseudobulk_manifest(
             outdir=comparison_out,
             sample_column=sample_column,
             design=comparison["design"],
+            counts_layer=counts_layer,
             group_column=comparison["group_column"],
             group_value=comparison["group_value"],
             covariates=comparison["covariates"],
@@ -519,19 +546,23 @@ def run_pseudobulk_manifest(
             commands.extend([aggregate, differential])
             continue
 
+        fingerprint = hash_payload({"input": input_hash, "aggregate": aggregate, "de": differential})
+        completion_file = run_root / "completion.json"
         complete = False
         if resume and result.is_file() and significant.is_file():
             try:
-                complete = (
-                    json.loads((run_root / "de" / "run.json").read_text())["status"]
-                    == "success"
-                )
+                previous = json.loads(completion_file.read_text(encoding="utf-8"))
+                complete = previous == {
+                    "fingerprint": fingerprint,
+                    "results": [hash_file(result), hash_file(significant)],
+                }
             except (OSError, KeyError, json.JSONDecodeError):
                 pass
         status = "skipped" if complete else "success"
         error = ""
         try:
             if not complete:
+                atomic_write_json(completion_file, {"status": "running"})
                 comparison_out.mkdir(parents=True, exist_ok=True)
                 run_command(
                     aggregate,
@@ -591,6 +622,10 @@ def run_pseudobulk_manifest(
                 )
                 if not result.is_file() or not significant.is_file():
                     raise TxSuiteError(f"Comparison {name} did not produce DE tables")
+                atomic_write_json(completion_file, {
+                    "fingerprint": fingerprint,
+                    "results": [hash_file(result), hash_file(significant)],
+                })
         except TxSuiteError as exc:
             status = "failed"
             error = " ".join(str(exc).splitlines())
@@ -631,6 +666,7 @@ def pseudobulk_workflow_command(
     design: str,
     reference: str,
     test: str,
+    counts_layer: str = "counts",
     single_cell_image: str | None = None,
     bulk_image: str | None = None,
     padj: float = 0.05,
@@ -648,6 +684,7 @@ def pseudobulk_workflow_command(
     for label, value in (
         ("Sample column", sample_column),
         ("Design", design),
+        ("Counts layer", counts_layer),
         ("Group column", group_column),
         *(("Covariate", covariate) for covariate in covariates),
     ):
@@ -694,6 +731,8 @@ def pseudobulk_workflow_command(
         [
             "--sample_column",
             sample_column,
+            "--counts_layer",
+            counts_layer,
             "--design",
             design,
             "--reference",
@@ -771,12 +810,15 @@ def pseudobulk_manifest_workflow_command(
     h5ad: Path,
     outdir: Path,
     sample_column: str,
+    counts_layer: str = "counts",
     single_cell_image: str | None = None,
     bulk_image: str | None = None,
     nextflow_config: Path | None = None,
     resume: bool = False,
 ) -> list[str]:
     load_pseudobulk_manifest(manifest)
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", counts_layer):
+        raise TxSuiteError("Counts layer must be a simple column name")
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", sample_column):
         raise TxSuiteError("Sample column must be a simple column name")
     command = _pseudobulk_nextflow_command(
@@ -792,6 +834,8 @@ def pseudobulk_manifest_workflow_command(
         [
             "--manifest",
             str(manifest.resolve()),
+            "--counts_layer",
+            counts_layer,
             "--sample_column",
             sample_column,
         ]
@@ -955,7 +999,7 @@ def build_single_cell_image(tag: str, *, run_dir: Path) -> None:
     package = resources.files("txsuite.resources.single_cell_python")
     with tempfile.TemporaryDirectory(prefix="txsuite-single-cell-") as directory:
         context = Path(directory)
-        for name in ("Dockerfile", "single_cell.py"):
+        for name in ("Dockerfile", "single_cell.py", "collect_de.py"):
             (context / name).write_text(
                 package.joinpath(name).read_text(encoding="utf-8"), encoding="utf-8"
             )
